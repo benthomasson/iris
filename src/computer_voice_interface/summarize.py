@@ -15,7 +15,7 @@ from docopt import docopt
 import logging
 import os
 import sys
-import llama2
+from . import llama2
 import spacy
 
 nlp = spacy.load("en_core_web_sm")

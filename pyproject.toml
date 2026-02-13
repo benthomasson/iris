@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "computer-voice-interface"
+version = "0.1.0"
+description = "Voice interface combining Whisper speech recognition with a local LLM"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "docopt>=0.6.2",
+    "ollama",
+    "openai>=0.25.0",
+    "openai-whisper",
+    "PyAudio>=0.2.13",
+    "SpeechRecognition>=3.9.0",
+    "spacy>=3.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.2.0",
+    "black>=22.12.0",
+    "flake8>=6.0.0",
+]
+
+[project.scripts]
+cvi = "computer_voice_interface.computer:main"
+cvi-dictation = "computer_voice_interface.dictation:main"
+cvi-summarize = "computer_voice_interface.summarize:main"

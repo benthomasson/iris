@@ -9,17 +9,16 @@ A voice interface that combines OpenAI Whisper speech recognition with a local L
 ## Running
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install in development mode
+pip install -e .
 
-# Main voice interface
-python3 computer.py [--debug] [--verbose] [--prompt=<file>]
+# Or run directly via uvx
+uvx --from . cvi [--debug] [--verbose] [--prompt=<file>]
+uvx --from . cvi-dictation [--debug] [--verbose]
+uvx --from . cvi-summarize [--chunk-size=<c>] [--tokens=<t>] <text-file>
 
-# Dictation mode (continuous transcription)
-python3 dictation.py [--debug] [--verbose]
-
-# Text summarization
-python3 summarize.py [--chunk-size=<c>] [--tokens=<t>] <text-file>
+# Dev dependencies
+pip install -e ".[dev]"
 ```
 
 ## Prerequisites
@@ -27,8 +26,14 @@ python3 summarize.py [--chunk-size=<c>] [--tokens=<t>] <text-file>
 - Ollama running locally with `llama3` model pulled
 - macOS (for `say` TTS command)
 - Microphone access
-- `API_KEY` env var (legacy OpenAI key, referenced in computer.py but LLM calls now go through Ollama)
-- spaCy `en_core_web_sm` model for summarize.py
+- spaCy `en_core_web_sm` model for cvi-summarize
+
+## Package Structure
+
+```
+src/computer_voice_interface/   # all source code lives here
+pyproject.toml                  # build config, dependencies, entry points
+```
 
 ## Architecture
 
@@ -39,19 +44,20 @@ python3 summarize.py [--chunk-size=<c>] [--tokens=<t>] <text-file>
 
 **Data flow:** Microphone → SpeechRecognition (Whisper) → text cleanup (lowercase, strip punctuation) → FSM.run(text) → state transition or LLM response → voice.say() → macOS `say`
 
-**Key modules:**
-- `computer.py` — Entry point. Audio capture loop, feeds recognized text into FSM.
+**Key modules (all under `src/computer_voice_interface/`):**
+- `computer.py` — Entry point (`cvi`). Audio capture loop, feeds recognized text into FSM.
 - `computer_fsm.py` — StateMachine/State base classes + InitialState/ComputerState/ShutdownState.
 - `llama2.py` — LLM wrapper. Despite the filename, uses `llama3` model via `ollama.generate()`.
 - `voice.py` — TTS wrapper around macOS `say` command.
-- `dictation.py` — Standalone transcription tool. Uses threading: one thread listens, another recognizes (queue-based).
-- `summarize.py` — Chunks text with spaCy, summarizes each chunk via LLM.
+- `dictation.py` — Standalone transcription tool (`cvi-dictation`). Uses threading: one thread listens, another recognizes (queue-based).
+- `summarize.py` — Chunks text with spaCy, summarizes each chunk via LLM (`cvi-summarize`).
 
 **Threading model (dictation.py):** Listener thread captures audio into a Queue; recognizer thread consumes from the Queue. This prevents listening lockups during recognition.
 
 ## Code Conventions
 
 - CLI argument parsing uses `docopt` (docstring-based)
+- Internal imports use relative style (`from . import llama2`)
 - Logging via standard `logging` module; controlled by `--debug`/`--verbose` flags
 - Whisper hallucination strings (e.g., repeated "1.5%") are filtered out in IGNORE_STRINGS
 - Audio captured at 8000 Hz sample rate with 5-second ambient noise calibration

@@ -20,7 +20,7 @@ import time
 import openai
 import subprocess
 import string
-from computer_fsm import ComputerFSM
+from .computer_fsm import ComputerFSM
 
 # Replace YOUR_API_KEY with your OpenAI API key
 openai.api_key = os.environ.get('API_KEY')

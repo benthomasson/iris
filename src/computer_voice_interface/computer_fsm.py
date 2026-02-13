@@ -3,8 +3,8 @@
 # When it hears computer it will change state to "computer" and then
 # list for further commmands.
 
-import llama2
-import voice
+from . import llama2
+from . import voice
 
 
 class StateMachine(object):
