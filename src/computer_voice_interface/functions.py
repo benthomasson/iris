@@ -352,4 +352,5 @@ def send_message(recipient, message):
     parameters=[],
 )
 def shutdown():
+    subprocess.run(["say", "-r", "235", "--", "Goodbye"], start_new_session=True)
     raise SystemExit

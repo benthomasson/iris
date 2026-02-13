@@ -1,3 +1,5 @@
+import os
+
 from textual.app import App, ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Header, Static
@@ -46,7 +48,11 @@ class VoiceApp(App):
     """
 
     TITLE = "Computer Voice Interface"
-    BINDINGS = [("q", "quit", "Quit")]
+    BINDINGS = [
+        ("q", "force_quit", "Quit"),
+        ("ctrl+q", "force_quit", "Quit"),
+        ("ctrl+c", "force_quit", "Quit"),
+    ]
 
     def __init__(self, worker_fn):
         super().__init__()
@@ -72,6 +78,10 @@ class VoiceApp(App):
 
     def on_status_update(self, message: StatusUpdate) -> None:
         self.query_one("#status", Static).update(message.text)
+
+    def action_force_quit(self) -> None:
+        """Force quit — kills worker thread and subprocesses."""
+        os._exit(0)
 
     def display_callback(self, user_text: str, response_text: str) -> None:
         """Thread-safe callback for the FSM to update the display."""

@@ -56,6 +56,7 @@ def init_conversation():
         ["claude", "-p", prompt],
         capture_output=True,
         text=True,
+        start_new_session=True,
     )
     return result.stdout.strip()
 
@@ -72,6 +73,7 @@ def generate_response(
         result = subprocess.run(
             ["claude", "-c", "-p", prompt],
             capture_output=True,
+            start_new_session=True,
             text=True,
         )
         return result.stdout.strip()
