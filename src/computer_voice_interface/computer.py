@@ -42,7 +42,7 @@ def parse_args(args):
 
 def recognize_audio(r, source):
     try:
-        audio_data = r.listen(source, timeout=5)
+        audio_data = r.listen(source, timeout=5, phrase_time_limit=30)
         text = r.recognize_whisper(audio_data)
     except sr.WaitTimeoutError:
         text = ""
@@ -59,7 +59,8 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
     voice.say(response)
 
     r = sr.Recognizer()
-    with sr.Microphone(sample_rate=8000) as source:
+    r.pause_threshold = 2.0
+    with sr.Microphone(sample_rate=16000) as source:
         if on_status:
             on_status("Calibrating microphone...")
         r.adjust_for_ambient_noise(source, duration=5)
