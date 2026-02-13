@@ -12,47 +12,20 @@ Options:
 """
 from docopt import docopt
 import logging
+import multiprocessing.resource_tracker
 import sys
 import os
 import speech_recognition as sr
-import pyaudio
 import time
-import openai
-import subprocess
 import string
 from .computer_fsm import ComputerFSM
+from .ui import VoiceApp
 
-# Replace YOUR_API_KEY with your OpenAI API key
-openai.api_key = os.environ.get('API_KEY')
-
-
-# Set the model and prompt
-model_engine = "text-davinci-003"
-prompt = "Hello"
-
-# Set the maximum number of tokens to generate in the response
-max_tokens = 128
-
+# Warm up the multiprocessing resource tracker before Textual takes over,
+# avoids a Python 3.13 bug with bad file descriptors.
+multiprocessing.resource_tracker.ensure_running()
 
 logger = logging.getLogger('computer')
-
-
-def play(audio_data):
-
-    p = pyaudio.PyAudio()
-    stream = p.open(format=pyaudio.paInt16, channels=1, rate=8000, output=True)
-    stream.write(audio_data.frame_data)
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
-
-
-def say(text):
-    print(text)
-    try:
-        subprocess.run(["say", text])
-    except KeyboardInterrupt:
-        pass
 
 
 def parse_args(args):
@@ -67,36 +40,56 @@ def parse_args(args):
 
 
 def recognize_audio(r, source):
-    # read the audio data from the default microphone
-    print("Ready")
     try:
         audio_data = r.listen(source, timeout=5)
-        # play(audio_data)
-        # convert speech to text
         text = r.recognize_whisper(audio_data)
     except sr.WaitTimeoutError:
         text = ""
     return text
 
 
-def generate_response(prompt):
+def audio_loop(prompt, on_display=None, on_status=None, on_exit=None):
+    """Run FSM init and audio listening loop."""
+    if on_status:
+        on_status("Initializing Claude...")
+    fsm = ComputerFSM({'prompt': prompt}, on_display=on_display)
 
-    # Generate a response
-    try:
-        completion = openai.Completion.create(
-            engine=model_engine,
-            prompt=prompt,
-            max_tokens=1024,
-            temperature=0.5,
-            top_p=1,
-            frequency_penalty=0,
-            presence_penalty=0
-        )
-        print(completion.choices)
-        # Print the response
-        say(completion.choices[0].text)
-    except KeyboardInterrupt:
-        pass
+    r = sr.Recognizer()
+    with sr.Microphone(sample_rate=8000) as source:
+        if on_status:
+            on_status("Calibrating microphone...")
+        r.adjust_for_ambient_noise(source, duration=5)
+        if on_status:
+            on_status("Listening...")
+        else:
+            print("Ready")
+        while True:
+            try:
+                text = recognize_audio(r, source)
+            except KeyboardInterrupt:
+                if on_exit:
+                    on_exit()
+                return
+
+            text = text.strip().lower()
+            text = text.translate(str.maketrans('', '', string.punctuation))
+            if text == "" or text == "15 15 15 15 15 15 15":
+                continue
+
+            if on_status:
+                on_status("Processing...")
+            print(f"You said '{text}'")
+
+            try:
+                fsm.run(text)
+            except SystemExit:
+                if on_exit:
+                    on_exit()
+                return
+
+            if on_status:
+                on_status("Listening...")
+            time.sleep(1)
 
 
 def main(args=None):
@@ -110,36 +103,16 @@ def main(args=None):
         with open(prompt_file, 'r') as f:
             prompt = f.read()
 
-    fsm = ComputerFSM({'prompt': prompt})
-
-    r = sr.Recognizer()
-    with sr.Microphone(sample_rate=8000) as source:
-        r.adjust_for_ambient_noise(source, duration=5)
-        while True:
-            try:
-                text = recognize_audio(r, source)
-            except KeyboardInterrupt:
-                return
-
-            text = text.strip()
-            text = text.lower()
-            # remove all punctuation
-            text = text.translate(str.maketrans('', '', string.punctuation))
-            if text == "":
-                continue
-
-            if text == "15 15 15 15 15 15 15":
-                continue
-
-            print(f"You said '{text}'")
-            # ok = input("Is this correct? [y/n] ")
-            # if ok == "n":
-            #    continue
-
-            fsm.run(text)
-
-            # generate_response(text)
-            time.sleep(1)
+    if parsed_args['--debug']:
+        audio_loop(prompt)
+    else:
+        app = VoiceApp(lambda: audio_loop(
+            prompt,
+            on_display=app.display_callback,
+            on_status=app.status_callback,
+            on_exit=app.exit,
+        ))
+        app.run()
 
     return 0
 
