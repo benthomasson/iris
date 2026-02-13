@@ -81,6 +81,7 @@ class VoiceApp(App):
 
     def action_force_quit(self) -> None:
         """Force quit — kills worker thread and subprocesses."""
+        os.system("stty sane && clear")
         os._exit(0)
 
     def display_callback(self, user_text: str, response_text: str) -> None:

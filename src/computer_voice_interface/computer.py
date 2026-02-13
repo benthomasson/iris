@@ -95,28 +95,33 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
                 on_status("Processing...")
             print(f"You said '{text}'")
 
-            if prompt:
-                text = prompt + " " + text
-            response = llm.generate_response(text)
-            speech, json_data = llm.parse_response(response)
-            if on_display:
-                on_display(text, response)
-            if json_data:
-                print(json.dumps(json_data, indent=2))
-
-            # If Claude called a function, execute it and get a spoken summary
-            if json_data and "function" in json_data:
-                result = functions.call(json_data["function"], json_data.get("args", {}))
-                print(json.dumps(result, indent=2))
-                follow_up = llm.generate_response(
-                    f"Function {json_data['function']} returned: {json.dumps(result)}. "
-                    "Summarize the result conversationally."
-                )
-                speech, _ = llm.parse_response(follow_up)
+            try:
+                if prompt:
+                    text = prompt + " " + text
+                response = llm.generate_response(text)
+                speech, json_data = llm.parse_response(response)
                 if on_display:
-                    on_display(text, follow_up)
+                    on_display(text, response)
+                if json_data:
+                    print(json.dumps(json_data, indent=2))
 
-            voice.say(speech)
+                # If Claude called a function, execute it and get a spoken summary
+                if json_data and "function" in json_data:
+                    result = functions.call(json_data["function"], json_data.get("args", {}))
+                    print(json.dumps(result, indent=2))
+                    follow_up = llm.generate_response(
+                        f"Function {json_data['function']} returned: {json.dumps(result)}. "
+                        "Summarize the result conversationally."
+                    )
+                    speech, _ = llm.parse_response(follow_up)
+                    if on_display:
+                        on_display(text, follow_up)
+
+                voice.say(speech)
+            except SystemExit:
+                if on_exit:
+                    on_exit()
+                return
 
             if on_status:
                 on_status("Listening...")
@@ -134,16 +139,21 @@ def main(args=None):
         with open(prompt_file, 'r') as f:
             prompt = f.read()
 
-    if parsed_args['--debug']:
-        audio_loop(prompt)
-    else:
-        app = VoiceApp(lambda: audio_loop(
-            prompt,
-            on_display=app.display_callback,
-            on_status=app.status_callback,
-            on_exit=app.exit,
-        ))
-        app.run()
+    try:
+        if parsed_args['--debug']:
+            audio_loop(prompt)
+        else:
+            app = VoiceApp(lambda: audio_loop(
+                prompt,
+                on_display=app.display_callback,
+                on_status=app.status_callback,
+                on_exit=app.exit,
+            ))
+            app.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        os.system("stty sane && clear")
 
     return 0
 
