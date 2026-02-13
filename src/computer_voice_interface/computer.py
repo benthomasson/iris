@@ -53,19 +53,20 @@ def recognize_audio(r, source):
 
 def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
     """Initialize Claude and listen/respond loop."""
-    if on_status:
-        on_status("Initializing Claude...")
-    response = llm.init_conversation()
-    if on_display:
-        on_display("", response)
-    voice.say(response)
-
     r = sr.Recognizer()
     r.pause_threshold = 2.0
     with sr.Microphone(sample_rate=16000) as source:
         if on_status:
             on_status("Calibrating microphone...")
         r.adjust_for_ambient_noise(source, duration=5)
+
+        if on_status:
+            on_status("Initializing Claude...")
+        response = llm.init_conversation()
+        if on_display:
+            on_display("", response)
+        voice.say(response)
+
         if on_status:
             on_status("Listening...")
         else:
