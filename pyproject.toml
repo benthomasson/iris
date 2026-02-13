@@ -5,12 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "computer-voice-interface"
 version = "0.1.0"
-description = "Voice interface combining Whisper speech recognition with a local LLM"
+description = "Voice interface combining Whisper speech recognition with Claude"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "docopt>=0.6.2",
-    "ollama",
     "openai>=0.25.0",
     "openai-whisper",
     "PyAudio>=0.2.13",

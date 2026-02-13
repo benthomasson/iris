@@ -15,7 +15,7 @@ from docopt import docopt
 import logging
 import os
 import sys
-from . import llama2
+from . import llm
 import spacy
 
 nlp = spacy.load("en_core_web_sm")
@@ -56,7 +56,7 @@ def main(args=None):
             + str(chunk)
             + "\nEND"
         )
-        print(llama2.generate_response(prompt, max_tokens=max_tokens))
+        print(llm.generate_response(prompt, max_tokens=max_tokens))
     return 0
 
 

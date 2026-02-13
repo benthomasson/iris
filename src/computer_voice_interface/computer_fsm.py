@@ -3,7 +3,7 @@
 # When it hears computer it will change state to "computer" and then
 # list for further commmands.
 
-from . import llama2
+from . import llm
 from . import voice
 
 
@@ -86,15 +86,15 @@ class ComputerState(State):
             print("Computer heard:", text)
             if context.get('prompt'):
                 text = context['prompt'] + " " + text
-            voice.say(llama2.generate_response(text))
+            voice.say(llm.generate_response(text))
         return next_state
 
     def enter(self, text=None):
         super().enter()
         if text is None:
-            voice.say(llama2.generate_response("hello computer"))
+            voice.say(llm.generate_response("hello computer"))
         else:
-            voice.say(llama2.generate_response(text))
+            voice.say(llm.generate_response(text))
 
 
 class ShutdownState(State):
@@ -115,11 +115,11 @@ class ShutdownState(State):
     def enter(self, text=None):
         super().enter()
         if text is None:
-            voice.say(llama2.generate_response("goodbye"))
+            voice.say(llm.generate_response("goodbye"))
         elif text == "shut down" or text == "shutdown":
-            voice.say(llama2.generate_response("goodbye"))
+            voice.say(llm.generate_response("goodbye"))
         else:
-            voice.say(llama2.generate_response(text))
+            voice.say(llm.generate_response(text))
         raise SystemExit
 
 
@@ -133,6 +133,7 @@ class ComputerFSM(StateMachine):
         super().__init__(self.states, self.states["initial"], context)
         for state in self.states.values():
             state.init()
+        voice.say(llm.init_conversation())
 
     def run(self, text):
         print("Input:", text)
