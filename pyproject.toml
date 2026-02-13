@@ -13,6 +13,7 @@ dependencies = [
     "openai>=0.25.0",
     "openai-whisper",
     "PyAudio>=0.2.13",
+    "soundfile",
     "SpeechRecognition>=3.9.0",
     "spacy>=3.4.0",
     "textual>=0.40.0",

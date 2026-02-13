@@ -18,7 +18,8 @@ import os
 import speech_recognition as sr
 import time
 import string
-from .computer_fsm import ComputerFSM
+from . import llm
+from . import voice
 from .ui import VoiceApp
 
 # Warm up the multiprocessing resource tracker before Textual takes over,
@@ -48,11 +49,14 @@ def recognize_audio(r, source):
     return text
 
 
-def audio_loop(prompt, on_display=None, on_status=None, on_exit=None):
-    """Run FSM init and audio listening loop."""
+def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
+    """Initialize Claude and listen/respond loop."""
     if on_status:
         on_status("Initializing Claude...")
-    fsm = ComputerFSM({'prompt': prompt}, on_display=on_display)
+    response = llm.init_conversation()
+    if on_display:
+        on_display("", response)
+    voice.say(response)
 
     r = sr.Recognizer()
     with sr.Microphone(sample_rate=8000) as source:
@@ -80,12 +84,12 @@ def audio_loop(prompt, on_display=None, on_status=None, on_exit=None):
                 on_status("Processing...")
             print(f"You said '{text}'")
 
-            try:
-                fsm.run(text)
-            except SystemExit:
-                if on_exit:
-                    on_exit()
-                return
+            if prompt:
+                text = prompt + " " + text
+            response = llm.generate_response(text)
+            if on_display:
+                on_display(text, response)
+            voice.say(response)
 
             if on_status:
                 on_status("Listening...")
