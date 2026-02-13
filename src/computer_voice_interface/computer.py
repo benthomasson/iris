@@ -19,6 +19,7 @@ import speech_recognition as sr
 import time
 import string
 import json
+from . import functions
 from . import llm
 from . import voice
 from .ui import VoiceApp
@@ -94,6 +95,19 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
                 on_display(text, response)
             if json_data:
                 print(json.dumps(json_data, indent=2))
+
+            # If Claude called a function, execute it and get a spoken summary
+            if json_data and "function" in json_data:
+                result = functions.call(json_data["function"], json_data.get("args", {}))
+                print(json.dumps(result, indent=2))
+                follow_up = llm.generate_response(
+                    f"Function {json_data['function']} returned: {json.dumps(result)}. "
+                    "Summarize the result conversationally."
+                )
+                speech, _ = llm.parse_response(follow_up)
+                if on_display:
+                    on_display(text, follow_up)
+
             voice.say(speech)
 
             if on_status:

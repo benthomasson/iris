@@ -6,6 +6,8 @@ import time
 from datetime import datetime
 
 
+from . import functions
+
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
@@ -13,8 +15,11 @@ SYSTEM_PROMPT = (
     "The user speaks to you and your responses will be read aloud. "
     "Respond in 1-2 sentences maximum. Be brief and conversational. "
     "Never use lists, markdown, or formatting. "
-    "When you want to return structured data, include a JSON object "
-    "in your response. The JSON will be shown on screen but not read aloud."
+    "You have access to local functions you can call by including a JSON object "
+    'in your response with the format: {"function": "name", "args": {...}}. '
+    "The JSON will be executed locally and not read aloud. "
+    "After calling a function, speak the result conversationally. "
+    "Available functions:\n"
 )
 
 
@@ -46,8 +51,9 @@ def parse_response(response):
 def init_conversation():
     """Start a new Claude conversation with the system prompt."""
     logger.info("Starting new Claude conversation")
+    prompt = SYSTEM_PROMPT + functions.get_prompt_description() + "\n\nSay hello."
     result = subprocess.run(
-        ["claude", "-p", SYSTEM_PROMPT + " Say hello."],
+        ["claude", "-p", prompt],
         capture_output=True,
         text=True,
     )
