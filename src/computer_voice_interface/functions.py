@@ -1,9 +1,18 @@
 """Local functions that Claude can call via JSON blocks."""
 
 import logging
+import os
+import platform
+import shutil
+import socket
+import subprocess
+import threading
+import time
 import urllib.request
 import urllib.parse
 import json
+from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -104,3 +113,243 @@ def get_weather(location):
     except Exception as e:
         logger.error("Weather lookup failed: %s", e)
         return {"error": str(e)}
+
+
+# --- Time & Date ---
+
+
+@register(
+    name="get_time",
+    description="Get the current time and date",
+    parameters=[],
+)
+def get_time():
+    now = datetime.now()
+    return {
+        "time": now.strftime("%I:%M %p"),
+        "date": now.strftime("%A, %B %d, %Y"),
+    }
+
+
+# --- Timer ---
+
+NOTES_DIR = Path.home() / ".cvi_notes"
+
+
+@register(
+    name="set_timer",
+    description="Set a countdown timer that announces when done",
+    parameters=[
+        {"name": "seconds", "type": "number", "description": "Number of seconds for the timer"},
+        {"name": "label", "type": "string", "description": "What the timer is for"},
+    ],
+)
+def set_timer(seconds, label="timer"):
+    def _timer():
+        time.sleep(seconds)
+        subprocess.run(["say", "-r", "235", "--", f"Timer done: {label}"])
+
+    thread = threading.Thread(target=_timer, daemon=True)
+    thread.start()
+    return {"status": "started", "seconds": seconds, "label": label}
+
+
+# --- Calculator ---
+
+
+@register(
+    name="calculate",
+    description="Evaluate a math expression and return the result",
+    parameters=[
+        {"name": "expression", "type": "string", "description": "Math expression to evaluate, e.g. '347 * 23'"},
+    ],
+)
+def calculate(expression):
+    # Only allow safe math characters
+    allowed = set("0123456789+-*/.() %")
+    if not all(c in allowed for c in expression):
+        return {"error": "Invalid characters in expression"}
+    try:
+        result = eval(expression, {"__builtins__": {}}, {})
+        return {"expression": expression, "result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# --- System Info ---
+
+
+@register(
+    name="get_system_info",
+    description="Get system information like disk space, IP address, and uptime",
+    parameters=[],
+)
+def get_system_info():
+    disk = shutil.disk_usage("/")
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        ip = "unknown"
+    return {
+        "hostname": socket.gethostname(),
+        "ip_address": ip,
+        "os": f"{platform.system()} {platform.release()}",
+        "disk_free_gb": round(disk.free / (1024 ** 3), 1),
+        "disk_total_gb": round(disk.total / (1024 ** 3), 1),
+    }
+
+
+# --- Notes/Reminders ---
+
+
+@register(
+    name="save_note",
+    description="Save a note or reminder to retrieve later",
+    parameters=[
+        {"name": "text", "type": "string", "description": "The note or reminder text"},
+    ],
+)
+def save_note(text):
+    NOTES_DIR.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = NOTES_DIR / f"{timestamp}.txt"
+    path.write_text(text)
+    return {"status": "saved", "note": text}
+
+
+@register(
+    name="get_notes",
+    description="Retrieve all saved notes and reminders",
+    parameters=[],
+)
+def get_notes():
+    if not NOTES_DIR.exists():
+        return {"notes": []}
+    now = datetime.now()
+    notes = []
+    for f in sorted(NOTES_DIR.glob("*.txt")):
+        created = datetime.strptime(f.stem, "%Y%m%d_%H%M%S")
+        delta = now - created
+        if delta.days > 0:
+            ago = f"{delta.days} day{'s' if delta.days != 1 else ''} ago"
+        elif delta.seconds >= 3600:
+            hours = delta.seconds // 3600
+            ago = f"{hours} hour{'s' if hours != 1 else ''} ago"
+        elif delta.seconds >= 60:
+            mins = delta.seconds // 60
+            ago = f"{mins} minute{'s' if mins != 1 else ''} ago"
+        else:
+            ago = "just now"
+        notes.append({"timestamp": f.stem, "ago": ago, "text": f.read_text()})
+    return {"notes": notes}
+
+
+# --- Wikipedia ---
+
+
+@register(
+    name="wikipedia_summary",
+    description="Get a short summary about a topic from Wikipedia",
+    parameters=[
+        {"name": "topic", "type": "string", "description": "Topic to look up"},
+    ],
+)
+def wikipedia_summary(topic):
+    try:
+        url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(topic)
+        req = urllib.request.Request(url, headers={"User-Agent": "CVI/1.0"})
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read())
+        return {"title": data.get("title", topic), "summary": data.get("extract", "No summary available.")}
+    except Exception as e:
+        logger.error("Wikipedia lookup failed: %s", e)
+        return {"error": str(e)}
+
+
+# --- Unit Conversion ---
+
+
+@register(
+    name="convert_units",
+    description="Convert between common units (distance, weight, temperature)",
+    parameters=[
+        {"name": "value", "type": "number", "description": "The numeric value to convert"},
+        {"name": "from_unit", "type": "string", "description": "Unit to convert from"},
+        {"name": "to_unit", "type": "string", "description": "Unit to convert to"},
+    ],
+)
+def convert_units(value, from_unit, to_unit):
+    conversions = {
+        ("miles", "km"): lambda v: v * 1.60934,
+        ("km", "miles"): lambda v: v / 1.60934,
+        ("pounds", "kg"): lambda v: v * 0.453592,
+        ("kg", "pounds"): lambda v: v / 0.453592,
+        ("fahrenheit", "celsius"): lambda v: (v - 32) * 5 / 9,
+        ("celsius", "fahrenheit"): lambda v: v * 9 / 5 + 32,
+        ("feet", "meters"): lambda v: v * 0.3048,
+        ("meters", "feet"): lambda v: v / 0.3048,
+        ("inches", "cm"): lambda v: v * 2.54,
+        ("cm", "inches"): lambda v: v / 2.54,
+        ("gallons", "liters"): lambda v: v * 3.78541,
+        ("liters", "gallons"): lambda v: v / 3.78541,
+        ("ounces", "grams"): lambda v: v * 28.3495,
+        ("grams", "ounces"): lambda v: v / 28.3495,
+    }
+    key = (from_unit.lower(), to_unit.lower())
+    if key not in conversions:
+        return {"error": f"Cannot convert from {from_unit} to {to_unit}"}
+    result = conversions[key](value)
+    return {"value": value, "from": from_unit, "to": to_unit, "result": round(result, 4)}
+
+
+# --- Stubs (not yet implemented) ---
+
+
+@register(
+    name="home_automation",
+    description="Control smart home devices (not yet connected)",
+    parameters=[
+        {"name": "device", "type": "string", "description": "Device name, e.g. 'living room lights'"},
+        {"name": "action", "type": "string", "description": "Action to perform, e.g. 'on', 'off', 'dim 50%'"},
+    ],
+)
+def home_automation(device, action):
+    # TODO: Connect to Home Assistant or similar
+    return {"status": "not_implemented", "message": f"Home automation not yet connected. Would {action} {device}."}
+
+
+@register(
+    name="play_music",
+    description="Play music or a podcast (not yet connected)",
+    parameters=[
+        {"name": "query", "type": "string", "description": "Song, artist, playlist, or podcast name"},
+    ],
+)
+def play_music(query):
+    # TODO: Connect to Spotify, Apple Music, etc.
+    return {"status": "not_implemented", "message": f"Music playback not yet connected. Would play: {query}"}
+
+
+@register(
+    name="send_message",
+    description="Send a message to someone (not yet connected)",
+    parameters=[
+        {"name": "recipient", "type": "string", "description": "Who to send the message to"},
+        {"name": "message", "type": "string", "description": "The message content"},
+    ],
+)
+def send_message(recipient, message):
+    # TODO: Connect to iMessage, Slack, etc.
+    return {"status": "not_implemented", "message": f"Messaging not yet connected. Would send to {recipient}: {message}"}
+
+
+# --- System Control ---
+
+
+@register(
+    name="shutdown",
+    description="Shut down the voice interface. Use when the user says goodbye or asks to shut down.",
+    parameters=[],
+)
+def shutdown():
+    raise SystemExit

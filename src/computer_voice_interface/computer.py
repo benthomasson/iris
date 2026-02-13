@@ -45,6 +45,8 @@ def parse_args(args):
 def recognize_audio(r, source):
     try:
         audio_data = r.listen(source, timeout=5, phrase_time_limit=30)
+        duration = len(audio_data.frame_data) / (audio_data.sample_rate * audio_data.sample_width)
+        logger.info("Captured %.1fs of audio (threshold=%s)", duration, r.energy_threshold)
         text = r.recognize_whisper(audio_data)
     except sr.WaitTimeoutError:
         text = ""
@@ -54,11 +56,16 @@ def recognize_audio(r, source):
 def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
     """Initialize Claude and listen/respond loop."""
     r = sr.Recognizer()
-    r.pause_threshold = 2.0
+    r.pause_threshold = 3.0
+    r.dynamic_energy_threshold = False
+    r.energy_threshold = 300
     with sr.Microphone(sample_rate=16000) as source:
         if on_status:
             on_status("Calibrating microphone...")
-        r.adjust_for_ambient_noise(source, duration=5)
+        r.adjust_for_ambient_noise(source, duration=2)
+        # Use calibrated value as a floor but don't go above 500
+        r.energy_threshold = min(r.energy_threshold, 500)
+        logger.info("Energy threshold set to %s", r.energy_threshold)
 
         if on_status:
             on_status("Initializing Claude...")
