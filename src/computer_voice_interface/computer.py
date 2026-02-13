@@ -18,6 +18,7 @@ import os
 import speech_recognition as sr
 import time
 import string
+import json
 from . import llm
 from . import voice
 from .ui import VoiceApp
@@ -88,9 +89,12 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
             if prompt:
                 text = prompt + " " + text
             response = llm.generate_response(text)
+            speech, json_data = llm.parse_response(response)
             if on_display:
                 on_display(text, response)
-            voice.say(response)
+            if json_data:
+                print(json.dumps(json_data, indent=2))
+            voice.say(speech)
 
             if on_status:
                 on_status("Listening...")
