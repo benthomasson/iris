@@ -102,9 +102,8 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
         sample = source.stream.read(source.CHUNK)
         rms = audioop.rms(sample, source.SAMPLE_WIDTH)
         logger.info("Audio level check: RMS=%d from %d bytes", rms, len(sample))
-        # Ensure threshold is in a usable range
+        # Ensure threshold has a reasonable floor
         r.energy_threshold = max(r.energy_threshold, 100)
-        r.energy_threshold = min(r.energy_threshold, 500)
         logger.info("Energy threshold set to %s", r.energy_threshold)
 
         if on_status:
