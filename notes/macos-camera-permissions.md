@@ -26,6 +26,7 @@ tmux runs as a separate server process. If the tmux server was started outside o
 - Same issue applies to other macOS permissions (microphone, screen recording, etc.)
 - Other terminal apps (iTerm2, Alacritty, etc.) need the same treatment if used instead of Terminal.app
 - tmux may also lose inherited permissions over time (needs further investigation)
+- **USB disconnect/reconnect revokes permissions**: If the camera or mic is unplugged (e.g. moving the Mac), macOS revokes access. Reconnecting the hardware does NOT restore permissions to the running tmux server — the stale revocation persists. Symptom: mic calibration times out at launch, `r.listen()` hangs. Fix: `tmux kill-server` and relaunch from authorized Terminal.app.
 
 ## Screen Lock Revokes Access
 
