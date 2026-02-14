@@ -1,7 +1,7 @@
 
 import subprocess
 
-VOICE = "Moira"
+VOICE = "Moira (Enhanced)"
 RATE = 180
 PITCH = 50
 
