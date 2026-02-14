@@ -157,6 +157,39 @@ def degrees_to_target(degrees):
 - **Tilt:** servo driving a Lego Technic gear or linkage arm
 - MG90S has plenty of torque for Lego gears + C920 weight
 
+## Force/Load Sensing
+
+Standard hobby servos (MG90S, SG90) have no built-in load feedback. Options:
+
+### Stall Detection (free, no extra hardware)
+
+Use `is_moving()` — if the servo can't reach its target (blocked), it stays in "moving" state indefinitely. Crude but works for detecting collisions.
+
+```python
+def is_moving():
+    """Check if any servos are still moving to their targets."""
+    port.write(bytes([0x93]))
+    return ord(port.read()) != 0
+```
+
+### Current Sensing (~$5 + I2C adapter)
+
+- INA219 current sensor inline with servo power wire
+- Higher current = more load/resistance
+- Python library: `adafruit-circuitpython-ina219`
+- Needs USB-I2C adapter for Mac (e.g., Adafruit FT232H ~$15)
+
+### Maestro Analog Inputs
+
+- The Maestro 6-channel has analog input on channels not used for servos
+- Could read a force-sensitive resistor (FSR) or load cell via ADC
+- No extra USB adapter needed
+
+### Smart Servos (expensive)
+
+- Dynamixel servos report position, load, temperature, voltage over serial
+- $30-100+ each, overkill for camera mount but standard for real robots
+
 ## Notes
 
 - Servos draw significant current under load — don't power from USB
