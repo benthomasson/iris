@@ -26,7 +26,9 @@ iris [options]
 | `--debug` | No TUI, prints to stdout | off |
 | `--verbose` | Show verbose logging | off |
 | `--quiet` | Text input, no speech output | off |
-| `--prompt=<file>` | Prepend prompt file to all input | none |
+| `--system=<file>` | Extra system prompt (appended to identity) | none |
+| `--intro=<file>` | First user message sent after init | none |
+| `--prompt=<file>` | Prepended to every user message | none |
 | `--name=<name>` | Assistant name | Iris |
 | `--voice=<voice>` | macOS TTS voice | Moira (Enhanced) |
 | `--pitch=<pitch>` | Voice pitch | 50 |
@@ -39,6 +41,7 @@ iris --debug                  # stdout mode with voice
 iris --quiet                  # TUI with text input, no speech
 iris --debug --quiet          # stdin/stdout, no speech
 iris --voice=Daniel --pitch=40 --name=Bob
+iris --system=chess.txt --intro=game_start.txt
 ```
 
 ## Features
