@@ -74,7 +74,7 @@ def generate_response(
     try:
         logger.info("Generating response... at %s", datetime.now())
         result = subprocess.run(
-            ["claude", "-c", "-p", prompt],
+            ["claude", "-c", "-p", prompt, "--allowedTools", "Read"],
             capture_output=True,
             start_new_session=True,
             text=True,

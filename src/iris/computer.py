@@ -149,10 +149,18 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
                 if json_data and "function" in json_data:
                     result = functions.call(json_data["function"], json_data.get("args", {}))
                     print(json.dumps(result, indent=2))
-                    follow_up = llm.generate_response(
-                        f"Function {json_data['function']} returned: {json.dumps(result)}. "
-                        "Summarize the result conversationally."
-                    )
+                    image_path = result.get("path", "") if isinstance(result, dict) else ""
+                    if image_path and image_path.endswith(".png"):
+                        follow_up_prompt = (
+                            f"Read the image at {image_path} and describe what you see. "
+                            "Be brief and conversational."
+                        )
+                    else:
+                        follow_up_prompt = (
+                            f"Function {json_data['function']} returned: {json.dumps(result)}. "
+                            "Summarize the result conversationally."
+                        )
+                    follow_up = llm.generate_response(follow_up_prompt)
                     speech, _ = llm.parse_response(follow_up)
                     if on_display:
                         on_display(text, follow_up)

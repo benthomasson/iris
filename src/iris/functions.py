@@ -302,6 +302,33 @@ def convert_units(value, from_unit, to_unit):
     return {"value": value, "from": from_unit, "to": to_unit, "result": round(result, 4)}
 
 
+# --- Vision ---
+
+
+@register(
+    name="capture_image",
+    description="Capture a photo from the webcam",
+    parameters=[],
+)
+def capture_image():
+    import cv2
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        return {"error": "Could not open webcam"}
+    try:
+        ret, frame = cap.read()
+        if not ret:
+            return {"error": "Could not capture frame"}
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = Path.home() / ".iris" / "captures"
+        path.mkdir(parents=True, exist_ok=True)
+        filepath = path / f"{timestamp}.png"
+        cv2.imwrite(str(filepath), frame)
+        return {"status": "captured", "path": str(filepath)}
+    finally:
+        cap.release()
+
+
 # --- Stubs (not yet implemented) ---
 
 
