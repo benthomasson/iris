@@ -59,7 +59,19 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
     r.pause_threshold = 3.0
     r.dynamic_energy_threshold = False
     r.energy_threshold = 300
-    with sr.Microphone(sample_rate=16000) as source:
+    try:
+        mic = sr.Microphone(sample_rate=16000)
+        source = mic.__enter__()
+        if source.stream is None:
+            raise OSError("Microphone stream failed to open")
+    except OSError as e:
+        logger.error("Could not open microphone: %s", e)
+        print("Error: Could not open microphone. Check that a microphone is "
+              "connected and that microphone access is allowed in System Settings.")
+        if on_exit:
+            on_exit()
+        return
+    try:
         if on_status:
             on_status("Calibrating microphone...")
         r.adjust_for_ambient_noise(source, duration=2)
@@ -126,6 +138,9 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
             if on_status:
                 on_status("Listening...")
             time.sleep(1)
+    finally:
+        if source.stream is not None:
+            mic.__exit__(None, None, None)
 
 
 def main(args=None):
