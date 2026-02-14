@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 FUNCTION_REGISTRY = {}
 
+VISUAL_MODE = False
+
 
 class EnterInactiveMode(Exception):
     """Raised by go_to_sleep to signal the main loop to enter inactive mode."""
@@ -437,6 +439,28 @@ def send_message(recipient, message):
 
 
 # --- System Control ---
+
+
+@register(
+    name="start_visual_mode",
+    description="Start visual mode to periodically capture and describe what the camera sees. Use when user says 'start watching', 'watch this', 'look at this', etc.",
+    parameters=[],
+)
+def start_visual_mode():
+    global VISUAL_MODE
+    VISUAL_MODE = True
+    return {"status": "visual_mode_enabled"}
+
+
+@register(
+    name="stop_visual_mode",
+    description="Stop visual mode. Use when user says 'stop watching', 'stop looking', etc.",
+    parameters=[],
+)
+def stop_visual_mode():
+    global VISUAL_MODE
+    VISUAL_MODE = False
+    return {"status": "visual_mode_disabled"}
 
 
 @register(

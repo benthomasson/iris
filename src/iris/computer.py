@@ -15,6 +15,7 @@ Options:
     --name=<name>           Assistant name [default: Iris]
     --voice=<voice>         macOS TTS voice [default: Moira (Enhanced)]
     --pitch=<pitch>         Voice pitch [default: 50]
+    --visual                Enable visual mode (periodic camera capture)
 """
 from docopt import docopt
 import logging
@@ -32,6 +33,7 @@ from . import voice
 from .ui import VoiceApp
 
 IDLE_CYCLES_BEFORE_INACTIVE = 5  # ~25s of silence with 5s listen timeout
+VISUAL_INTERVAL = 10  # seconds between visual mode captures
 
 # Warm up the multiprocessing resource tracker before Textual takes over,
 # avoids a Python 3.13 bug with bad file descriptors.
@@ -189,6 +191,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
 
         active = True
         idle_count = 0
+        last_visual_capture = 0.0
         if on_status:
             on_status("Waiting for input..." if quiet else "Listening...")
         else:
@@ -209,21 +212,38 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
             text = text.translate(str.maketrans('', '', string.punctuation))
             if text == "" or text in ("15 15 15 15 15 15 15", "25 25 25 25 25 25 25"):
                 if active and not quiet and r is not None:
-                    idle_count += 1
-                    logger.debug("Idle cycle %d/%d", idle_count, IDLE_CYCLES_BEFORE_INACTIVE)
-                    if idle_count >= IDLE_CYCLES_BEFORE_INACTIVE:
-                        logger.info("Idle timeout, entering inactive mode")
-                        functions.release_camera()
-                        voice.say("Going to sleep.")
-                        active = False
+                    if functions.VISUAL_MODE:
                         idle_count = 0
-                        if on_sleep:
-                            on_sleep(True)
-                        if on_status:
-                            name = llm.ASSISTANT_NAME
-                            on_status(f"Sleeping (say '{name}' to wake)")
-                        else:
-                            print("Sleeping")
+                        now = time.time()
+                        if now - last_visual_capture >= VISUAL_INTERVAL:
+                            last_visual_capture = now
+                            result = functions.capture_image()
+                            if isinstance(result, dict) and "path" in result:
+                                prompt_text = (
+                                    f"Read the image at {result['path']} and describe what you see. "
+                                    "Narrate any changes or interesting details briefly."
+                                )
+                                response = llm.generate_response(prompt_text)
+                                speech, _ = llm.parse_response(response)
+                                if on_display:
+                                    on_display("[visual]", response)
+                                voice.say(speech)
+                    else:
+                        idle_count += 1
+                        logger.debug("Idle cycle %d/%d", idle_count, IDLE_CYCLES_BEFORE_INACTIVE)
+                        if idle_count >= IDLE_CYCLES_BEFORE_INACTIVE:
+                            logger.info("Idle timeout, entering inactive mode")
+                            functions.release_camera()
+                            voice.say("Going to sleep.")
+                            active = False
+                            idle_count = 0
+                            if on_sleep:
+                                on_sleep(True)
+                            if on_status:
+                                name = llm.ASSISTANT_NAME
+                                on_status(f"Sleeping (say '{name}' to wake)")
+                            else:
+                                print("Sleeping")
                 continue
 
             # --- Inactive mode: only listen for wake words ---
@@ -246,6 +266,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
 
             # --- Active mode ---
             idle_count = 0
+            last_visual_capture = time.time()
             if on_status:
                 on_status("Processing...")
             logger.info("User: %s", text)
@@ -334,6 +355,8 @@ def main(args=None):
     llm.ASSISTANT_NAME = parsed_args['--name']
     if system:
         llm.EXTRA_SYSTEM_PROMPT = system
+    if parsed_args['--visual']:
+        functions.VISUAL_MODE = True
 
     try:
         if parsed_args['--debug']:
