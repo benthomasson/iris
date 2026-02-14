@@ -26,3 +26,13 @@ tmux runs as a separate server process. If the tmux server was started outside o
 - Same issue applies to other macOS permissions (microphone, screen recording, etc.)
 - Other terminal apps (iTerm2, Alacritty, etc.) need the same treatment if used instead of Terminal.app
 - tmux may also lose inherited permissions over time (needs further investigation)
+
+## Screen Lock Revokes Access
+
+macOS revokes camera and microphone access when the screen locks. The revocation is not instantaneous — there's a brief delay after the lock event before hardware is cut off. This can cause errors mid-capture if the timing is unlucky.
+
+### Workarounds
+
+- **Prevent display sleep**: `caffeinate -d` (built into macOS since 10.8, no install needed)
+- **System Settings**: Lock Screen > adjust "Turn display off" and "Require password" timers
+- **Error handling**: Consider graceful handling around `capture_image` calls in case the camera disappears mid-session

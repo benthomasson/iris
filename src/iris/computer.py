@@ -213,24 +213,25 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
             text = text.strip().lower()
             text = text.translate(str.maketrans('', '', string.punctuation))
 
-            # Muted: discard all audio, but keep visual captures firing
+            # Muted: discard all audio unless it contains "unmute"
             if functions.MUTED and r is not None and not quiet:
-                idle_count = 0
-                now = time.time()
-                if functions.VISUAL_MODE and now - last_visual_capture >= VISUAL_INTERVAL:
-                    last_visual_capture = now
-                    result = functions.capture_image()
-                    if isinstance(result, dict) and "path" in result:
-                        prompt_text = (
-                            f"Read the image at {result['path']} and describe what you see. "
-                            "Narrate any changes or interesting details briefly."
-                        )
-                        response = llm.generate_response(prompt_text)
-                        speech, _ = llm.parse_response(response)
-                        if on_display:
-                            on_display("[visual]", response)
-                        voice.say(speech)
-                continue
+                if not (text and "unmute" in text.split()):
+                    idle_count = 0
+                    now = time.time()
+                    if functions.VISUAL_MODE and now - last_visual_capture >= VISUAL_INTERVAL:
+                        last_visual_capture = now
+                        result = functions.capture_image()
+                        if isinstance(result, dict) and "path" in result:
+                            prompt_text = (
+                                f"Read the image at {result['path']} and describe what you see. "
+                                "Narrate any changes or interesting details briefly."
+                            )
+                            response = llm.generate_response(prompt_text)
+                            speech, _ = llm.parse_response(response)
+                            if on_display:
+                                on_display("[visual]", response)
+                            voice.say(speech)
+                    continue
 
             if text == "" or text in ("15 15 15 15 15 15 15", "25 25 25 25 25 25 25"):
                 if active and not quiet and r is not None:
