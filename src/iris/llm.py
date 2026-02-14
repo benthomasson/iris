@@ -11,6 +11,7 @@ from . import functions
 logger = logging.getLogger(__name__)
 
 ASSISTANT_NAME = "Iris"
+EXTRA_SYSTEM_PROMPT = None
 
 IDENTITY = {
     "Iris": (
@@ -36,7 +37,10 @@ SYSTEM_PROMPT_TEMPLATE = (
 
 def get_system_prompt():
     identity = IDENTITY.get(ASSISTANT_NAME, f"Your name is {ASSISTANT_NAME}. ")
-    return SYSTEM_PROMPT_TEMPLATE.format(identity=identity)
+    prompt = SYSTEM_PROMPT_TEMPLATE.format(identity=identity)
+    if EXTRA_SYSTEM_PROMPT:
+        prompt += "\n" + EXTRA_SYSTEM_PROMPT + "\n"
+    return prompt
 
 
 def parse_response(response):

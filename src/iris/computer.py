@@ -9,7 +9,9 @@ Options:
     --debug                 Show debug logging
     --verbose               Show verbose logging
     --quiet                 Text input, no speech output
-    --prompt=<prompt>       Prompt to use
+    --system=<file>         Extra system prompt (appended to identity)
+    --intro=<file>          First user message sent after init
+    --prompt=<file>         Prepended to every user message
     --name=<name>           Assistant name [default: Iris]
     --voice=<voice>         macOS TTS voice [default: Moira (Enhanced)]
     --pitch=<pitch>         Voice pitch [default: 50]
@@ -75,7 +77,7 @@ def get_input(r=None, source=None, input_queue=None):
 
 
 def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
-               quiet=False, input_queue=None):
+               quiet=False, input_queue=None, intro=None):
     """Initialize Claude and listen/respond loop."""
     mic = None
     source = None
@@ -138,6 +140,15 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
         if on_display:
             on_display("", response)
         voice.say(response)
+
+        if intro:
+            if on_status:
+                on_status("Processing intro...")
+            response = llm.generate_response(intro)
+            speech, _ = llm.parse_response(response)
+            if on_display:
+                on_display(intro, response)
+            voice.say(speech)
 
         if on_status:
             on_status("Waiting for input..." if quiet else "Listening...")
@@ -215,20 +226,27 @@ def main(args=None):
         args = sys.argv[1:]
     parsed_args = parse_args(args)
 
-    prompt_file = parsed_args['--prompt']
-    prompt = None
-    if prompt_file and os.path.exists(prompt_file):
-        with open(prompt_file, 'r') as f:
-            prompt = f.read()
+    def read_file_option(key):
+        path = parsed_args[key]
+        if path and os.path.exists(path):
+            with open(path, 'r') as f:
+                return f.read().strip()
+        return None
+
+    system = read_file_option('--system')
+    intro = read_file_option('--intro')
+    prompt = read_file_option('--prompt')
 
     quiet = parsed_args['--quiet']
     voice.VOICE = parsed_args['--voice']
     voice.PITCH = int(parsed_args['--pitch'])
     llm.ASSISTANT_NAME = parsed_args['--name']
+    if system:
+        llm.EXTRA_SYSTEM_PROMPT = system
 
     try:
         if parsed_args['--debug']:
-            audio_loop(prompt, quiet=quiet)
+            audio_loop(prompt, quiet=quiet, intro=intro)
         else:
             app = VoiceApp(lambda: audio_loop(
                 prompt,
@@ -237,6 +255,7 @@ def main(args=None):
                 on_exit=app.exit,
                 quiet=quiet,
                 input_queue=app.input_queue if quiet else None,
+                intro=intro,
             ), quiet=quiet)
             app.run()
     except KeyboardInterrupt:
