@@ -136,6 +136,8 @@ def get_time():
 
 NOTES_DIR = Path.home() / ".cvi_notes"
 
+_active_timers = []  # list of {"label", "cancel"} dicts
+
 
 @register(
     name="set_timer",
@@ -146,13 +148,47 @@ NOTES_DIR = Path.home() / ".cvi_notes"
     ],
 )
 def set_timer(seconds, label="timer"):
-    def _timer():
-        time.sleep(seconds)
-        voice.say(f"Timer done: {label}")
+    cancelled = threading.Event()
 
-    thread = threading.Thread(target=_timer, daemon=True)
-    thread.start()
+    def _timer():
+        if not cancelled.wait(seconds):
+            voice.say(f"Timer done: {label}")
+        _active_timers[:] = [t for t in _active_timers if not t["cancel"].is_set()]
+
+    entry = {"label": label, "cancel": cancelled}
+    _active_timers.append(entry)
+    threading.Thread(target=_timer, daemon=True).start()
     return {"status": "started", "seconds": seconds, "label": label}
+
+
+@register(
+    name="cancel_last_timer",
+    description="Cancel the most recently set timer",
+    parameters=[],
+)
+def cancel_last_timer():
+    for timer in reversed(_active_timers):
+        if not timer["cancel"].is_set():
+            timer["cancel"].set()
+            return {"status": "cancelled", "label": timer["label"]}
+    return {"error": "No active timers"}
+
+
+@register(
+    name="cancel_all_timers",
+    description="Cancel all active timers",
+    parameters=[],
+)
+def cancel_all_timers():
+    cancelled = []
+    for timer in _active_timers:
+        if not timer["cancel"].is_set():
+            timer["cancel"].set()
+            cancelled.append(timer["label"])
+    _active_timers.clear()
+    if cancelled:
+        return {"status": "cancelled", "labels": cancelled}
+    return {"error": "No active timers"}
 
 
 # --- Calculator ---
