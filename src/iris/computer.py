@@ -130,22 +130,33 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
                 on_exit()
             return
 
+        logger.info("Calibrating microphone...")
         if on_status:
             on_status("Calibrating microphone...")
-        r.adjust_for_ambient_noise(source, duration=2)
+        import threading
+        calibrated = threading.Event()
+        def _calibrate():
+            try:
+                r.adjust_for_ambient_noise(source, duration=2)
+            except Exception as e:
+                logger.warning("Calibration error: %s", e)
+            calibrated.set()
+        t = threading.Thread(target=_calibrate, daemon=True)
+        t.start()
+        if not calibrated.wait(timeout=5):
+            logger.warning("Calibration timed out, using default threshold")
+            r.energy_threshold = 300
         logger.info("Calibrated energy threshold: %s", r.energy_threshold)
-        import audioop
-        sample = source.stream.read(source.CHUNK)
-        rms = audioop.rms(sample, source.SAMPLE_WIDTH)
-        logger.info("Audio level check: RMS=%d from %d bytes", rms, len(sample))
         r.energy_threshold = max(r.energy_threshold, 100)
         logger.info("Energy threshold set to %s", r.energy_threshold)
 
     try:
+        logger.info("Warming up camera...")
         if on_status:
             on_status("Warming up camera...")
         functions.init_camera()
 
+        logger.info("Initializing Claude...")
         if on_status:
             on_status("Initializing Claude...")
         response = llm.init_conversation()
