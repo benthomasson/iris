@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 FUNCTION_REGISTRY = {}
 
 
+class EnterInactiveMode(Exception):
+    """Raised by go_to_sleep to signal the main loop to enter inactive mode."""
+    pass
+
+
 def register(name, description, parameters):
     """Decorator to register a function Claude can call."""
     def decorator(fn):
@@ -38,6 +43,8 @@ def call(name, args):
         return {"error": f"Unknown function: {name}"}
     try:
         return FUNCTION_REGISTRY[name]["function"](**args)
+    except (EnterInactiveMode, SystemExit):
+        raise
     except Exception as e:
         return {"error": str(e)}
 
@@ -430,6 +437,15 @@ def send_message(recipient, message):
 
 
 # --- System Control ---
+
+
+@register(
+    name="go_to_sleep",
+    description="Enter sleep/inactive mode. Use when the user says 'pause', 'take a break', 'go to sleep', 'stop listening', or similar. The assistant will stop processing until woken by name.",
+    parameters=[],
+)
+def go_to_sleep():
+    raise EnterInactiveMode
 
 
 @register(

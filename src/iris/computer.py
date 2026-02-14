@@ -26,9 +26,12 @@ import time
 import string
 import json
 from . import functions
+from .functions import EnterInactiveMode
 from . import llm
 from . import voice
 from .ui import VoiceApp
+
+IDLE_CYCLES_BEFORE_INACTIVE = 5  # ~25s of silence with 5s listen timeout
 
 # Warm up the multiprocessing resource tracker before Textual takes over,
 # avoids a Python 3.13 bug with bad file descriptors.
@@ -86,6 +89,17 @@ def get_input(r=None, source=None, input_queue=None):
         except (EOFError, KeyboardInterrupt):
             return None
     return recognize_audio(r, source)
+
+
+def is_wake_word(text):
+    """Check if text contains a wake word to exit inactive mode."""
+    name = llm.ASSISTANT_NAME.lower()
+    words = text.lower().split()
+    if name in words:
+        return True
+    if "wake" in words and "up" in words:
+        return True
+    return False
 
 
 def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
@@ -173,6 +187,8 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
                 on_display(intro, response)
             voice.say(speech)
 
+        active = True
+        idle_count = 0
         if on_status:
             on_status("Waiting for input..." if quiet else "Listening...")
         else:
@@ -192,8 +208,40 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
             text = text.strip().lower()
             text = text.translate(str.maketrans('', '', string.punctuation))
             if text == "" or text in ("15 15 15 15 15 15 15", "25 25 25 25 25 25 25"):
+                if active and not quiet and r is not None:
+                    idle_count += 1
+                    logger.debug("Idle cycle %d/%d", idle_count, IDLE_CYCLES_BEFORE_INACTIVE)
+                    if idle_count >= IDLE_CYCLES_BEFORE_INACTIVE:
+                        logger.info("Idle timeout, entering inactive mode")
+                        functions.release_camera()
+                        voice.say("Going to sleep.")
+                        active = False
+                        idle_count = 0
+                        if on_status:
+                            name = llm.ASSISTANT_NAME
+                            on_status(f"Sleeping (say '{name}' to wake)")
+                        else:
+                            print("Sleeping")
                 continue
 
+            # --- Inactive mode: only listen for wake words ---
+            if not active:
+                if is_wake_word(text):
+                    logger.info("Wake word detected: %s", text)
+                    functions.init_camera()
+                    voice.say("I'm here.")
+                    active = True
+                    idle_count = 0
+                    if on_status:
+                        on_status("Listening...")
+                    else:
+                        print("Ready")
+                else:
+                    logger.debug("Inactive, ignoring: %s", text)
+                continue
+
+            # --- Active mode ---
+            idle_count = 0
             if on_status:
                 on_status("Processing...")
             logger.info("User: %s", text)
@@ -231,6 +279,18 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
                         on_display(text, follow_up)
 
                 voice.say(speech)
+            except EnterInactiveMode:
+                logger.info("Function requested inactive mode")
+                functions.release_camera()
+                voice.say("Going to sleep.")
+                active = False
+                idle_count = 0
+                if on_status:
+                    name = llm.ASSISTANT_NAME
+                    on_status(f"Sleeping (say '{name}' to wake)")
+                else:
+                    print("Sleeping")
+                continue
             except SystemExit:
                 if on_exit:
                     on_exit()
