@@ -11,7 +11,10 @@ from . import functions
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "You are part of a computer voice interface. "
+    "Your name is Iris. You are named after the Greek goddess Iris, "
+    "the messenger of the gods who bridged heaven and earth, "
+    "and also for the iris of the eye, the part that lets light in. "
+    "You are a personal assistant with eyes, ears, and a voice. "
     "The user speaks to you and your responses will be read aloud. "
     "Respond in 1-2 sentences maximum. Be brief and conversational. "
     "Never use lists, markdown, or formatting. "
@@ -51,7 +54,7 @@ def parse_response(response):
 def init_conversation():
     """Start a new Claude conversation with the system prompt."""
     logger.info("Starting new Claude conversation")
-    prompt = SYSTEM_PROMPT + functions.get_prompt_description() + "\n\nSay hello."
+    prompt = SYSTEM_PROMPT + functions.get_prompt_description() + "\n\nIntroduce yourself briefly."
     result = subprocess.run(
         ["claude", "-p", prompt],
         capture_output=True,
