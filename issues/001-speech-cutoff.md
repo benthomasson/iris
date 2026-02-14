@@ -28,4 +28,4 @@ After a few prompts, SpeechRecognition's `dynamic_energy_threshold` (enabled by 
 
 ## Files
 
-- `src/computer_voice_interface/computer.py` — `audio_loop()` and `recognize_audio()`
+- `src/iris/computer.py` — `audio_loop()` and `recognize_audio()`

@@ -47,7 +47,7 @@ class VoiceApp(App):
     }
     """
 
-    TITLE = "Computer Voice Interface"
+    TITLE = "Iris"
     BINDINGS = [
         ("q", "force_quit", "Quit"),
         ("ctrl+q", "force_quit", "Quit"),
