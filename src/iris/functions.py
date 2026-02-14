@@ -317,6 +317,9 @@ def capture_image():
     if not cap.isOpened():
         return {"error": "Could not open webcam"}
     try:
+        # Let the camera auto-expose before capturing
+        for _ in range(30):
+            cap.read()
         ret, frame = cap.read()
         if not ret:
             return {"error": "Could not capture frame"}

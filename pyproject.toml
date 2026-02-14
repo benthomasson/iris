@@ -11,7 +11,6 @@ requires-python = ">=3.10"
 dependencies = [
     "docopt>=0.6.2",
     "opencv-python>=4.8.0",
-    "openai>=0.25.0",
     "openai-whisper",
     "PyAudio>=0.2.13",
     "soundfile",
