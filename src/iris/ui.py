@@ -26,6 +26,12 @@ class SleepUpdate(Message):
         self.sleeping = sleeping
 
 
+class MuteUpdate(Message):
+    def __init__(self, muted: bool):
+        super().__init__()
+        self.muted = muted
+
+
 class VoiceApp(App):
     CSS = """
     #user-label {
@@ -58,6 +64,9 @@ class VoiceApp(App):
     }
     Vertical.sleeping {
         opacity: 0.5;
+    }
+    Vertical.muted {
+        background: darkred;
     }
     """
 
@@ -114,6 +123,13 @@ class VoiceApp(App):
         else:
             container.remove_class("sleeping")
 
+    def on_mute_update(self, message: MuteUpdate) -> None:
+        container = self.query_one("Vertical")
+        if message.muted:
+            container.add_class("muted")
+        else:
+            container.remove_class("muted")
+
     def action_force_quit(self) -> None:
         """Force quit — kills worker thread and subprocesses."""
         os.system("stty sane && clear")
@@ -130,3 +146,7 @@ class VoiceApp(App):
     def sleep_callback(self, sleeping: bool) -> None:
         """Thread-safe callback to toggle sleep mode visuals."""
         self.post_message(SleepUpdate(sleeping))
+
+    def mute_callback(self, muted: bool) -> None:
+        """Thread-safe callback to toggle mute mode visuals."""
+        self.post_message(MuteUpdate(muted))

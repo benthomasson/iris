@@ -107,7 +107,7 @@ def is_wake_word(text):
 
 
 def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
-               on_exit=None, quiet=False, input_queue=None, intro=None):
+               on_mute=None, on_exit=None, quiet=False, input_queue=None, intro=None):
     """Initialize Claude and listen/respond loop."""
     mic = None
     source = None
@@ -212,6 +212,26 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
 
             text = text.strip().lower()
             text = text.translate(str.maketrans('', '', string.punctuation))
+
+            # Muted: discard all audio, but keep visual captures firing
+            if functions.MUTED and r is not None and not quiet:
+                idle_count = 0
+                now = time.time()
+                if functions.VISUAL_MODE and now - last_visual_capture >= VISUAL_INTERVAL:
+                    last_visual_capture = now
+                    result = functions.capture_image()
+                    if isinstance(result, dict) and "path" in result:
+                        prompt_text = (
+                            f"Read the image at {result['path']} and describe what you see. "
+                            "Narrate any changes or interesting details briefly."
+                        )
+                        response = llm.generate_response(prompt_text)
+                        speech, _ = llm.parse_response(response)
+                        if on_display:
+                            on_display("[visual]", response)
+                        voice.say(speech)
+                continue
+
             if text == "" or text in ("15 15 15 15 15 15 15", "25 25 25 25 25 25 25"):
                 if active and not quiet and r is not None:
                     if functions.VISUAL_MODE:
@@ -305,6 +325,13 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                     if on_display:
                         on_display(text, follow_up)
 
+                    # Update UI when mute state changes
+                    if json_data.get("function") in ("mute_microphone", "unmute_microphone"):
+                        if on_mute:
+                            on_mute(functions.MUTED)
+                        if on_status:
+                            on_status("Muted (visual mode active)" if functions.MUTED else "Listening...")
+
                 voice.say(speech)
             except EnterInactiveMode:
                 logger.info("Function requested inactive mode")
@@ -369,6 +396,7 @@ def main(args=None):
                 on_display=app.display_callback,
                 on_status=app.status_callback,
                 on_sleep=app.sleep_callback,
+                on_mute=app.mute_callback,
                 on_exit=app.exit,
                 quiet=quiet,
                 input_queue=app.input_queue if quiet else None,

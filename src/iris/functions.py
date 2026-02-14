@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 FUNCTION_REGISTRY = {}
 
 VISUAL_MODE = False
+MUTED = False
 
 
 class EnterInactiveMode(Exception):
@@ -461,6 +462,28 @@ def stop_visual_mode():
     global VISUAL_MODE
     VISUAL_MODE = False
     return {"status": "visual_mode_disabled"}
+
+
+@register(
+    name="mute_microphone",
+    description="Mute the microphone. Use when user says 'mute', 'mute mic', 'stop listening but keep watching', etc. Visual mode continues working.",
+    parameters=[],
+)
+def mute_microphone():
+    global MUTED
+    MUTED = True
+    return {"status": "microphone_muted"}
+
+
+@register(
+    name="unmute_microphone",
+    description="Unmute the microphone. Use when user says 'unmute', 'unmute mic', 'start listening again', etc.",
+    parameters=[],
+)
+def unmute_microphone():
+    global MUTED
+    MUTED = False
+    return {"status": "microphone_unmuted"}
 
 
 @register(
