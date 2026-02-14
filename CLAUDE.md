@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Iris — a personal assistant with eyes, ears, and a voice. Combines OpenAI Whisper speech recognition with Claude CLI for a spoken assistant. macOS only (uses native `say` command for TTS). Features a full-screen Textual TUI and local function calling via JSON blocks.
+Iris — a personal assistant with eyes, ears, and a voice. Combines OpenAI Whisper speech recognition with Claude CLI for a spoken assistant. macOS only (uses native `say` command for TTS). Features a full-screen Textual TUI, webcam vision, and local function calling via JSON blocks.
 
 ## Running
 
@@ -13,8 +13,10 @@ Iris — a personal assistant with eyes, ears, and a voice. Combines OpenAI Whis
 pip install -e .
 
 # Or run via uv
-uv run iris [--verbose] [--prompt=<file>]
+uv run iris [options]
 uv run iris --debug                        # no TUI, prints to stdout
+uv run iris --quiet                        # text input, no speech output
+uv run iris --debug --quiet                # text input via stdin
 uv run iris-dictation [--debug] [--verbose]
 uv run iris-summarize [--chunk-size=<c>] [--tokens=<t>] <text-file>
 
@@ -22,23 +24,36 @@ uv run iris-summarize [--chunk-size=<c>] [--tokens=<t>] <text-file>
 pip install -e ".[dev]"
 ```
 
+### CLI Options
+
+| Option | Description | Default |
+|---|---|---|
+| `--debug` | No TUI, prints to stdout | off |
+| `--verbose` | Show verbose logging | off |
+| `--quiet` | Text input, no speech output | off |
+| `--prompt=<file>` | Prepend prompt file to all input | none |
+| `--name=<name>` | Assistant name | Iris |
+| `--voice=<voice>` | macOS TTS voice | Moira (Enhanced) |
+| `--pitch=<pitch>` | Voice pitch | 50 |
+
 ## Prerequisites
 
 - `claude` CLI installed and authenticated
 - macOS (for `say` TTS command)
-- Microphone access
+- Microphone access (not needed with `--quiet`)
+- Webcam (for vision/capture)
 - spaCy `en_core_web_sm` model for iris-summarize
 
 ## Architecture
 
-**Data flow:** Microphone → SpeechRecognition (Whisper, 16kHz) → text cleanup → `llm.generate_response()` → `parse_response()` splits speech/JSON → function execution if JSON contains `{"function": ...}` → `voice.say()` speaks non-JSON text → macOS `say` at 180 wpm
+**Data flow:** Microphone/text input → SpeechRecognition (Whisper, 16kHz) or stdin/TUI → text cleanup → `llm.generate_response()` → `parse_response()` splits speech/JSON → function execution if JSON contains `{"function": ...}` → `voice.say()` speaks non-JSON text → macOS `say` at 180 wpm
 
 **Key modules (all under `src/iris/`):**
-- `computer.py` — Entry point (`iris`). Audio loop with Textual TUI (or `--debug` for stdout). Handles function call execution and follow-up.
-- `llm.py` — Claude CLI wrapper. `init_conversation()` starts a session with the system prompt (includes available functions), `generate_response()` continues it via `claude -c -p`. `parse_response()` splits text from JSON blocks.
-- `functions.py` — Local function registry. Use `@register(name, description, parameters)` decorator to add functions Claude can call. JSON format: `{"function": "name", "args": {...}}`. Currently includes `get_weather` stub.
-- `voice.py` — TTS wrapper around macOS `say` command (180 wpm).
-- `ui.py` — Textual full-screen TUI showing user speech and Claude response. Press `q` to quit.
+- `computer.py` — Entry point (`iris`). Main loop with Textual TUI (or `--debug` for stdout). Handles function call execution and follow-up.
+- `llm.py` — Claude CLI wrapper. `init_conversation()` starts a session with the system prompt (includes available functions), `generate_response()` continues it via `claude -c -p`. `parse_response()` splits text from JSON blocks. Configurable assistant name with identity lookup.
+- `functions.py` — Local function registry. Use `@register(name, description, parameters)` decorator to add functions Claude can call. JSON format: `{"function": "name", "args": {...}}`. Includes vision (`capture_image`), weather, timer, calculator, notes, and more.
+- `voice.py` — TTS wrapper around macOS `say` command. Configurable voice, rate, and pitch. Respects `QUIET` flag.
+- `ui.py` — Textual full-screen TUI showing user speech and Claude response. Text input widget in quiet mode. Press `q` to quit.
 - `dictation.py` — Standalone transcription tool (`iris-dictation`).
 - `summarize.py` — Text summarization via LLM (`iris-summarize`).
 
@@ -50,5 +65,6 @@ pip install -e ".[dev]"
 - Internal imports use relative style (`from . import llm`)
 - Logging via standard `logging` module; controlled by `--debug`/`--verbose` flags
 - Whisper hallucination strings (e.g., repeated "1.5%") are filtered out
-- Audio: 16kHz sample rate, 2s pause threshold, 30s phrase time limit, 5s ambient noise calibration
+- Audio: 16kHz sample rate, 3s pause threshold, 30s phrase time limit
+- Camera warms up at startup (30 frames for auto-exposure)
 - Python 3.13 workaround: `multiprocessing.resource_tracker.ensure_running()` called at import time to avoid fd bug with Textual
