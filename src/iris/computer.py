@@ -16,6 +16,7 @@ Options:
     --voice=<voice>         macOS TTS voice [default: Moira (Enhanced)]
     --pitch=<pitch>         Voice pitch [default: 50]
     --visual                Enable visual mode (periodic camera capture)
+    --passive               Start in passive mode (listen, respond only when addressed)
     --no-shutter            Disable camera shutter sound
 """
 from docopt import docopt
@@ -268,8 +269,12 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
         active = True
         idle_count = 0
         last_visual_capture = 0.0
+        passive_buffer = []
         if on_status:
-            on_status("Waiting for input..." if quiet else "Listening...")
+            if functions.PASSIVE_MODE:
+                on_status("Passive mode (0 lines)")
+            else:
+                on_status("Waiting for input..." if quiet else "Listening...")
         else:
             print("Ready")
         while True:
@@ -306,6 +311,75 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                                 on_display("[visual]", response)
                             voice.say(speech)
                     continue
+
+            # Passive mode: buffer speech, only send to Claude on wake word
+            if functions.PASSIVE_MODE and active and r is not None and not quiet:
+                if text:
+                    passive_buffer.append(text)
+                    if on_status:
+                        on_status(f"Passive mode ({len(passive_buffer)} lines)")
+                if text and is_wake_word(text):
+                    # Addressed by name — send buffer as context
+                    context = "\n".join(passive_buffer)
+                    passive_buffer.clear()
+                    prompt_text = (
+                        f"You have been in passive mode, listening to a conversation. "
+                        f"Here is what you overheard:\n\n{context}\n\n"
+                        f"Someone just addressed you directly. Respond to them."
+                    )
+                    if on_status:
+                        on_status("Processing...")
+                    response = _generate_with_timer(prompt_text, on_status=on_status)
+                    speech, json_data = llm.parse_response(response)
+                    if on_display:
+                        on_display(f"[conversation] {text}", response)
+                    # Handle function calls same as active mode
+                    if json_data and "function" in json_data:
+                        voice.say(speech)
+                        result = functions.call(json_data["function"], json_data.get("args", {}))
+                        image_path = result.get("path", "") if isinstance(result, dict) else ""
+                        if image_path and image_path.endswith(".png"):
+                            follow_up_prompt = (
+                                f"Read the image at {image_path} and describe what you see. "
+                                "Be brief and conversational."
+                            )
+                        else:
+                            follow_up_prompt = (
+                                f"Function {json_data['function']} returned: {json.dumps(result)}. "
+                                "Summarize the result conversationally."
+                            )
+                        follow_up = _generate_with_timer(follow_up_prompt, on_status=on_status)
+                        speech, _ = llm.parse_response(follow_up)
+                        if on_display:
+                            on_display(text, follow_up)
+                        # Clear buffer and update status after toggling passive mode off
+                        if json_data.get("function") == "stop_passive_mode":
+                            passive_buffer.clear()
+                            if on_status:
+                                on_status("Listening...")
+                            voice.say(speech)
+                            continue
+                    voice.say(speech)
+                    if on_status:
+                        on_status(f"Passive mode (0 lines)")
+                else:
+                    # No wake word — keep visual captures firing if enabled
+                    now = time.time()
+                    if functions.VISUAL_MODE and now - last_visual_capture >= VISUAL_INTERVAL:
+                        last_visual_capture = now
+                        result = functions.capture_image()
+                        if isinstance(result, dict) and "path" in result:
+                            prompt_text = (
+                                f"Read the image at {result['path']} and describe what you see. "
+                                "Narrate any changes or interesting details briefly."
+                            )
+                            response = _generate_with_timer(prompt_text, on_status=on_status)
+                            speech, _ = llm.parse_response(response)
+                            if on_display:
+                                on_display("[visual]", response)
+                            voice.say(speech)
+                idle_count = 0  # suppress auto-sleep
+                continue
 
             if text == "" or text in ("15 15 15 15 15 15 15", "25 25 25 25 25 25 25"):
                 if active and not quiet and r is not None:
@@ -408,6 +482,16 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                         if on_status:
                             on_status("Muted (visual mode active)" if functions.MUTED else "Listening...")
 
+                    # Update UI when passive mode changes
+                    if json_data.get("function") in ("start_passive_mode", "stop_passive_mode"):
+                        if not functions.PASSIVE_MODE:
+                            passive_buffer.clear()
+                        if on_status:
+                            if functions.PASSIVE_MODE:
+                                on_status("Passive mode (0 lines)")
+                            else:
+                                on_status("Listening...")
+
                 voice.say(speech)
             except EnterInactiveMode:
                 logger.info("Function requested inactive mode")
@@ -465,6 +549,8 @@ def main(args=None):
         functions.VISUAL_MODE = True
     if parsed_args['--no-shutter']:
         functions.SHUTTER_SOUND = False
+    if parsed_args['--passive']:
+        functions.PASSIVE_MODE = True
 
     try:
         if parsed_args['--debug']:

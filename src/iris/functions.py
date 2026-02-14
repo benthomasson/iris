@@ -21,6 +21,7 @@ FUNCTION_REGISTRY = {}
 
 VISUAL_MODE = False
 MUTED = False
+PASSIVE_MODE = False
 SHUTTER_SOUND = True
 
 
@@ -490,6 +491,28 @@ def unmute_microphone():
     global MUTED
     MUTED = False
     return {"status": "microphone_unmuted"}
+
+
+@register(
+    name="start_passive_mode",
+    description="Start passive mode. Iris listens passively and only responds when addressed by name. Use when user says 'passive mode', 'just listen', 'listen in', etc.",
+    parameters=[],
+)
+def start_passive_mode():
+    global PASSIVE_MODE
+    PASSIVE_MODE = True
+    return {"status": "passive_mode_enabled"}
+
+
+@register(
+    name="stop_passive_mode",
+    description="Stop passive mode and return to normal listening. Use when user says 'stop passive mode', 'normal mode', 'stop listening passively', etc.",
+    parameters=[],
+)
+def stop_passive_mode():
+    global PASSIVE_MODE
+    PASSIVE_MODE = False
+    return {"status": "passive_mode_disabled"}
 
 
 @register(
