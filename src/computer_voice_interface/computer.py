@@ -44,11 +44,16 @@ def parse_args(args):
 
 def recognize_audio(r, source):
     try:
+        logger.debug("Listening... (energy_threshold=%s)", r.energy_threshold)
         audio_data = r.listen(source, timeout=5, phrase_time_limit=30)
         duration = len(audio_data.frame_data) / (audio_data.sample_rate * audio_data.sample_width)
         logger.info("Captured %.1fs of audio (threshold=%s)", duration, r.energy_threshold)
+        if duration < 0.5:
+            logger.debug("Audio too short (%.1fs), skipping recognition", duration)
+            return ""
         text = r.recognize_whisper(audio_data)
     except sr.WaitTimeoutError:
+        logger.debug("Listen timed out waiting for speech")
         text = ""
     return text
 
@@ -60,7 +65,23 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
     r.dynamic_energy_threshold = False
     r.energy_threshold = 300
     try:
+        import pyaudio
+        _pa = pyaudio.PyAudio()
+        default_idx = _pa.get_default_input_device_info()["index"]
+        default_name = _pa.get_default_input_device_info()["name"]
+        logger.info("Default input device: [%d] %s", default_idx, default_name)
+        # List all input devices for diagnostics
+        for i in range(_pa.get_device_count()):
+            info = _pa.get_device_info_by_index(i)
+            if info["maxInputChannels"] > 0:
+                logger.info("  Input device [%d]: %s (channels=%d, rate=%.0f)",
+                            i, info["name"], info["maxInputChannels"], info["defaultSampleRate"])
+        _pa.terminate()
         mic = sr.Microphone(sample_rate=16000)
+        _idx = mic.device_index if mic.device_index is not None else default_idx
+        mic_name = sr.Microphone.list_microphone_names()[_idx]
+        logger.info("Using microphone: [%d] %s", _idx, mic_name)
+        print(f"Microphone: {mic_name}")
         source = mic.__enter__()
         if source.stream is None:
             raise OSError("Microphone stream failed to open")
@@ -75,7 +96,14 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
         if on_status:
             on_status("Calibrating microphone...")
         r.adjust_for_ambient_noise(source, duration=2)
-        # Use calibrated value as a floor but don't go above 500
+        logger.info("Calibrated energy threshold: %s", r.energy_threshold)
+        # Read a short sample and check actual audio levels
+        import audioop
+        sample = source.stream.read(source.CHUNK)
+        rms = audioop.rms(sample, source.SAMPLE_WIDTH)
+        logger.info("Audio level check: RMS=%d from %d bytes", rms, len(sample))
+        # Ensure threshold is in a usable range
+        r.energy_threshold = max(r.energy_threshold, 100)
         r.energy_threshold = min(r.energy_threshold, 500)
         logger.info("Energy threshold set to %s", r.energy_threshold)
 
@@ -168,7 +196,8 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        os.system("stty sane && clear")
+        if not parsed_args['--debug']:
+            os.system("stty sane && clear")
 
     return 0
 
