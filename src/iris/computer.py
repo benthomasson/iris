@@ -8,6 +8,7 @@ Options:
     -h, --help          Show this page
     --debug             Show debug logging
     --verbose           Show verbose logging
+    --quiet             Text input, no speech output
     --prompt=<prompt>   Prompt to use
 """
 from docopt import docopt
@@ -58,54 +59,72 @@ def recognize_audio(r, source):
     return text
 
 
-def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
+def get_input(r=None, source=None, input_queue=None):
+    """Get user input from mic, stdin, or TUI queue."""
+    if input_queue is not None:
+        return input_queue.get()
+    if r is None:
+        try:
+            return input("> ")
+        except (EOFError, KeyboardInterrupt):
+            return None
+    return recognize_audio(r, source)
+
+
+def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
+               quiet=False, input_queue=None):
     """Initialize Claude and listen/respond loop."""
-    r = sr.Recognizer()
-    r.pause_threshold = 3.0
-    r.dynamic_energy_threshold = False
-    r.energy_threshold = 300
-    try:
-        import pyaudio
-        _pa = pyaudio.PyAudio()
-        default_idx = _pa.get_default_input_device_info()["index"]
-        default_name = _pa.get_default_input_device_info()["name"]
-        logger.info("Default input device: [%d] %s", default_idx, default_name)
-        # List all input devices for diagnostics
-        for i in range(_pa.get_device_count()):
-            info = _pa.get_device_info_by_index(i)
-            if info["maxInputChannels"] > 0:
-                logger.info("  Input device [%d]: %s (channels=%d, rate=%.0f)",
-                            i, info["name"], info["maxInputChannels"], info["defaultSampleRate"])
-        _pa.terminate()
-        mic = sr.Microphone(sample_rate=16000)
-        _idx = mic.device_index if mic.device_index is not None else default_idx
-        mic_name = sr.Microphone.list_microphone_names()[_idx]
-        logger.info("Using microphone: [%d] %s", _idx, mic_name)
-        print(f"Microphone: {mic_name}")
-        source = mic.__enter__()
-        if source.stream is None:
-            raise OSError("Microphone stream failed to open")
-    except OSError as e:
-        logger.error("Could not open microphone: %s", e)
-        print("Error: Could not open microphone. Check that a microphone is "
-              "connected and that microphone access is allowed in System Settings.")
-        if on_exit:
-            on_exit()
-        return
-    try:
+    mic = None
+    source = None
+    r = None
+
+    if quiet:
+        voice.QUIET = True
+    else:
+        r = sr.Recognizer()
+        r.pause_threshold = 3.0
+        r.dynamic_energy_threshold = False
+        r.energy_threshold = 300
+        try:
+            import pyaudio
+            _pa = pyaudio.PyAudio()
+            default_idx = _pa.get_default_input_device_info()["index"]
+            default_name = _pa.get_default_input_device_info()["name"]
+            logger.info("Default input device: [%d] %s", default_idx, default_name)
+            for i in range(_pa.get_device_count()):
+                info = _pa.get_device_info_by_index(i)
+                if info["maxInputChannels"] > 0:
+                    logger.info("  Input device [%d]: %s (channels=%d, rate=%.0f)",
+                                i, info["name"], info["maxInputChannels"], info["defaultSampleRate"])
+            _pa.terminate()
+            mic = sr.Microphone(sample_rate=16000)
+            _idx = mic.device_index if mic.device_index is not None else default_idx
+            mic_name = sr.Microphone.list_microphone_names()[_idx]
+            logger.info("Using microphone: [%d] %s", _idx, mic_name)
+            print(f"Microphone: {mic_name}")
+            source = mic.__enter__()
+            if source.stream is None:
+                raise OSError("Microphone stream failed to open")
+        except OSError as e:
+            logger.error("Could not open microphone: %s", e)
+            print("Error: Could not open microphone. Check that a microphone is "
+                  "connected and that microphone access is allowed in System Settings.")
+            if on_exit:
+                on_exit()
+            return
+
         if on_status:
             on_status("Calibrating microphone...")
         r.adjust_for_ambient_noise(source, duration=2)
         logger.info("Calibrated energy threshold: %s", r.energy_threshold)
-        # Read a short sample and check actual audio levels
         import audioop
         sample = source.stream.read(source.CHUNK)
         rms = audioop.rms(sample, source.SAMPLE_WIDTH)
         logger.info("Audio level check: RMS=%d from %d bytes", rms, len(sample))
-        # Ensure threshold has a reasonable floor
         r.energy_threshold = max(r.energy_threshold, 100)
         logger.info("Energy threshold set to %s", r.energy_threshold)
 
+    try:
         if on_status:
             on_status("Warming up camera...")
         functions.init_camera()
@@ -118,13 +137,17 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
         voice.say(response)
 
         if on_status:
-            on_status("Listening...")
+            on_status("Waiting for input..." if quiet else "Listening...")
         else:
             print("Ready")
         while True:
             try:
-                text = recognize_audio(r, source)
+                text = get_input(r, source, input_queue)
             except KeyboardInterrupt:
+                if on_exit:
+                    on_exit()
+                return
+            if text is None:
                 if on_exit:
                     on_exit()
                 return
@@ -175,11 +198,12 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
                 return
 
             if on_status:
-                on_status("Listening...")
-            time.sleep(1)
+                on_status("Waiting for input..." if quiet else "Listening...")
+            if not quiet:
+                time.sleep(1)
     finally:
         functions.release_camera()
-        if source.stream is not None:
+        if source is not None and source.stream is not None:
             mic.__exit__(None, None, None)
 
 
@@ -194,16 +218,20 @@ def main(args=None):
         with open(prompt_file, 'r') as f:
             prompt = f.read()
 
+    quiet = parsed_args['--quiet']
+
     try:
         if parsed_args['--debug']:
-            audio_loop(prompt)
+            audio_loop(prompt, quiet=quiet)
         else:
             app = VoiceApp(lambda: audio_loop(
                 prompt,
                 on_display=app.display_callback,
                 on_status=app.status_callback,
                 on_exit=app.exit,
-            ))
+                quiet=quiet,
+                input_queue=app.input_queue if quiet else None,
+            ), quiet=quiet)
             app.run()
     except KeyboardInterrupt:
         pass

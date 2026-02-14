@@ -1,8 +1,9 @@
 import os
+import queue
 
 from textual.app import App, ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Header, Static
+from textual.widgets import Header, Input, Static
 from textual.message import Message
 
 
@@ -45,6 +46,10 @@ class VoiceApp(App):
         padding: 0 1;
         color: $text-muted;
     }
+    #text-input {
+        dock: bottom;
+        display: none;
+    }
     """
 
     TITLE = "Iris"
@@ -54,9 +59,11 @@ class VoiceApp(App):
         ("ctrl+c", "force_quit", "Quit"),
     ]
 
-    def __init__(self, worker_fn):
+    def __init__(self, worker_fn, quiet=False):
         super().__init__()
         self._worker_fn = worker_fn
+        self._quiet = quiet
+        self.input_queue = queue.Queue()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -66,15 +73,27 @@ class VoiceApp(App):
             Static("Claude:", id="response-label"),
             Static("Starting...", id="response-text"),
         )
+        yield Input(placeholder="Type a message...", id="text-input")
         yield Static("Starting...", id="status")
 
     def on_mount(self) -> None:
+        if self._quiet:
+            self.query_one("#text-input").styles.display = "block"
+            self.query_one("#text-input").focus()
         self.run_worker(self._worker_fn, thread=True)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        text = event.value.strip()
+        if text:
+            self.input_queue.put(text)
+            event.input.value = ""
 
     def on_display_update(self, message: DisplayUpdate) -> None:
         if message.user_text:
             self.query_one("#user-text", Static).update(message.user_text)
         self.query_one("#response-text", Static).update(message.response_text)
+        if self._quiet:
+            self.query_one("#text-input").focus()
 
     def on_status_update(self, message: StatusUpdate) -> None:
         self.query_one("#status", Static).update(message.text)
