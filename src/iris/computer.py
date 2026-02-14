@@ -67,8 +67,10 @@ def parse_args(args):
 
 def recognize_audio(r, source):
     try:
+        timeout = 3 if functions.VISUAL_MODE else 5
+        phrase_limit = 3 if functions.VISUAL_MODE else 30
         logger.debug("Listening... (energy_threshold=%s)", r.energy_threshold)
-        audio_data = r.listen(source, timeout=5, phrase_time_limit=30)
+        audio_data = r.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
         duration = len(audio_data.frame_data) / (audio_data.sample_rate * audio_data.sample_width)
         logger.info("Captured %.1fs of audio (threshold=%s)", duration, r.energy_threshold)
         if duration < 0.5:

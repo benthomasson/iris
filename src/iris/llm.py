@@ -71,7 +71,12 @@ def parse_response(response):
 def init_conversation():
     """Start a new Claude conversation with the system prompt."""
     logger.info("Starting new Claude conversation")
-    prompt = get_system_prompt() + functions.get_prompt_description() + "\n\nIntroduce yourself briefly."
+    intro = (
+        "Introduce yourself briefly. You are watching through the camera and ready to read aloud, play a game, or narrate what you see."
+        if functions.VISUAL_MODE else
+        "Introduce yourself briefly."
+    )
+    prompt = get_system_prompt() + functions.get_prompt_description() + "\n\n" + intro
     result = subprocess.run(
         ["claude", "-p", prompt],
         capture_output=True,
