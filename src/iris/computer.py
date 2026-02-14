@@ -17,6 +17,7 @@ Options:
     --pitch=<pitch>         Voice pitch [default: 50]
     --visual                Enable visual mode (periodic camera capture)
     --passive               Start in passive mode (listen, respond only when addressed)
+    --dictate               Start in dictation mode (transcribe to file, query on wake)
     --no-shutter            Disable camera shutter sound
 """
 from docopt import docopt
@@ -271,7 +272,9 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
         last_visual_capture = 0.0
         passive_buffer = []
         if on_status:
-            if functions.PASSIVE_MODE:
+            if functions.DICTATION_MODE:
+                on_status(f"Dictating ({functions._dictation_line_count} lines)")
+            elif functions.PASSIVE_MODE:
                 on_status("Passive mode (0 lines)")
             else:
                 on_status("Waiting for input..." if quiet else "Listening...")
@@ -364,6 +367,79 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                         on_status(f"Passive mode (0 lines)")
                 else:
                     # No wake word — keep visual captures firing if enabled
+                    now = time.time()
+                    if functions.VISUAL_MODE and now - last_visual_capture >= VISUAL_INTERVAL:
+                        last_visual_capture = now
+                        result = functions.capture_image()
+                        if isinstance(result, dict) and "path" in result:
+                            prompt_text = (
+                                f"Read the image at {result['path']} and describe what you see. "
+                                "Narrate any changes or interesting details briefly."
+                            )
+                            response = _generate_with_timer(prompt_text, on_status=on_status)
+                            speech, _ = llm.parse_response(response)
+                            if on_display:
+                                on_display("[visual]", response)
+                            voice.say(speech)
+                idle_count = 0  # suppress auto-sleep
+                continue
+
+            # Dictation mode: transcribe to disk, send to Claude on wake word
+            if functions.DICTATION_MODE and active and r is not None and not quiet:
+                if text and text not in ("15 15 15 15 15 15 15", "25 25 25 25 25 25 25"):
+                    functions.append_dictation(text)
+                    if on_status:
+                        on_status(f"Dictating ({functions._dictation_line_count} lines)")
+                if text and is_wake_word(text):
+                    context = functions.get_dictation_context(max_lines=100)
+                    prompt_text = (
+                        f"You are in dictation mode, continuously transcribing speech to a file. "
+                        f"Here is the recent transcript:\n\n{context}\n\n"
+                        f"Someone just addressed you. Respond to their request. "
+                        f"You can summarize, answer questions about the transcript, or save structured notes. "
+                        f"The transcript will continue accumulating after you respond."
+                    )
+                    if on_status:
+                        on_status("Processing...")
+                    response = _generate_with_timer(prompt_text, on_status=on_status)
+                    speech, json_data = llm.parse_response(response)
+                    if on_display:
+                        on_display(f"[dictation] {text}", response)
+                    if json_data and "function" in json_data:
+                        voice.say(speech)
+                        try:
+                            result = functions.call(json_data["function"], json_data.get("args", {}))
+                        except EnterInactiveMode:
+                            raise
+                        except SystemExit:
+                            voice.say(speech)
+                            if on_exit:
+                                on_exit()
+                            return
+                        image_path = result.get("path", "") if isinstance(result, dict) else ""
+                        if image_path and image_path.endswith(".png"):
+                            follow_up_prompt = (
+                                f"Read the image at {image_path} and describe what you see. "
+                                "Be brief and conversational."
+                            )
+                        else:
+                            follow_up_prompt = (
+                                f"Function {json_data['function']} returned: {json.dumps(result)}. "
+                                "Summarize the result conversationally."
+                            )
+                        follow_up = _generate_with_timer(follow_up_prompt, on_status=on_status)
+                        speech, _ = llm.parse_response(follow_up)
+                        if on_display:
+                            on_display(text, follow_up)
+                        if json_data.get("function") == "stop_dictation":
+                            voice.say(speech)
+                            if on_status:
+                                on_status("Listening...")
+                            continue
+                    voice.say(speech)
+                    if on_status:
+                        on_status(f"Dictating ({functions._dictation_line_count} lines)")
+                else:
                     now = time.time()
                     if functions.VISUAL_MODE and now - last_visual_capture >= VISUAL_INTERVAL:
                         last_visual_capture = now
@@ -492,6 +568,16 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                             else:
                                 on_status("Listening...")
 
+                    # Update UI when dictation mode changes
+                    if json_data.get("function") in ("start_dictation", "stop_dictation"):
+                        if functions.DICTATION_MODE:
+                            passive_buffer.clear()
+                        if on_status:
+                            if functions.DICTATION_MODE:
+                                on_status(f"Dictating ({functions._dictation_line_count} lines)")
+                            else:
+                                on_status("Listening...")
+
                 voice.say(speech)
             except EnterInactiveMode:
                 logger.info("Function requested inactive mode")
@@ -518,6 +604,8 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
             if not quiet:
                 time.sleep(1)
     finally:
+        if functions.DICTATION_MODE:
+            functions.stop_dictation()
         functions.release_camera()
         if source is not None and source.stream is not None:
             mic.__exit__(None, None, None)
@@ -551,6 +639,8 @@ def main(args=None):
         functions.SHUTTER_SOUND = False
     if parsed_args['--passive']:
         functions.PASSIVE_MODE = True
+    if parsed_args['--dictate']:
+        functions.start_dictation()
 
     try:
         if parsed_args['--debug']:

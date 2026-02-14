@@ -27,6 +27,9 @@ iris [options]
 | `--verbose` | Show verbose logging | off |
 | `--quiet` | Text input, no speech output | off |
 | `--visual` | Enable visual mode (periodic camera capture) | off |
+| `--passive` | Start in passive mode (listen, respond only when addressed) | off |
+| `--dictate` | Start in dictation mode (transcribe to file, query on wake) | off |
+| `--no-shutter` | Disable camera shutter sound | off |
 | `--system=<file>` | Extra system prompt (appended to identity) | none |
 | `--intro=<file>` | First user message sent after init | none |
 | `--prompt=<file>` | Prepended to every user message | none |
@@ -42,6 +45,8 @@ iris --debug                  # stdout mode with voice
 iris --quiet                  # TUI with text input, no speech
 iris --debug --quiet          # stdin/stdout, no speech
 iris --visual                 # Periodic camera narration
+iris --passive                # Listen passively, respond when addressed
+iris --dictate                # Transcribe speech to file, query on wake
 iris --voice=Daniel --pitch=40 --name=Bob
 iris --system=chess.txt --intro=game_start.txt
 ```
@@ -56,12 +61,15 @@ iris --system=chess.txt --intro=game_start.txt
   - Weather (Open-Meteo, no API key), time/date, timers, calculator
   - Notes/reminders, Wikipedia summaries, unit conversion
   - Camera capture, visual mode toggle, mute/unmute
+  - Passive mode, dictation mode toggle
   - Sleep/wake, shutdown
   - Stubs for home automation, music, messaging
 - **Full-screen Textual TUI** with status bar, sleep/mute visual states
 - **Quiet mode** for text-only interaction (TUI text input or stdin)
 - **Sleep/wake** — auto-sleeps after ~125s of silence; wake by saying the assistant's name (fuzzy matched)
 - **Mute** — mic off but visual mode continues
+- **Passive mode** — buffers speech locally, only sends to Claude when addressed by name
+- **Dictation mode** — continuously transcribes speech to a timestamped file in `~/.iris/dictation/`, crash-safe (flushed per line). Say the assistant's name to query Claude about the transcript. Transcript accumulates across interactions. Useful for meetings, lectures, and brainstorming sessions.
 
 ## Other tools
 

@@ -22,7 +22,14 @@ FUNCTION_REGISTRY = {}
 VISUAL_MODE = False
 MUTED = False
 PASSIVE_MODE = False
+DICTATION_MODE = False
 SHUTTER_SOUND = True
+
+DICTATION_DIR = Path.home() / ".iris" / "dictation"
+_dictation_file = None
+_dictation_path = None
+_dictation_line_count = 0
+_dictation_start_time = None
 
 
 class EnterInactiveMode(Exception):
@@ -513,6 +520,95 @@ def stop_passive_mode():
     global PASSIVE_MODE
     PASSIVE_MODE = False
     return {"status": "passive_mode_disabled"}
+
+
+# --- Dictation Mode ---
+
+
+def append_dictation(text):
+    """Write a timestamped line to the dictation file and flush."""
+    global _dictation_line_count
+    if _dictation_file is None:
+        return
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    _dictation_file.write(f"[{timestamp}] {text}\n")
+    _dictation_file.flush()
+    _dictation_line_count += 1
+
+
+def get_dictation_context(max_lines=100):
+    """Read the last N lines from the dictation file for the wake word prompt."""
+    if _dictation_path is None or not _dictation_path.exists():
+        return "(no transcript yet)"
+    lines = _dictation_path.read_text().splitlines()
+    total = len(lines)
+    recent = lines[-max_lines:]
+    header = f"[Dictation transcript: {total} total lines, started {_dictation_start_time}]"
+    if total > max_lines:
+        header += f"\n[...showing last {max_lines} of {total} lines...]"
+    return header + "\n" + "\n".join(recent)
+
+
+@register(
+    name="start_dictation",
+    description="Start dictation mode. Speech is transcribed to a file on disk. Responds only when addressed by name. Use when user says 'start dictation', 'take notes', 'record this meeting', etc.",
+    parameters=[],
+)
+def start_dictation():
+    global DICTATION_MODE, PASSIVE_MODE, _dictation_file, _dictation_path
+    global _dictation_line_count, _dictation_start_time
+    DICTATION_MODE = True
+    PASSIVE_MODE = False
+    DICTATION_DIR.mkdir(parents=True, exist_ok=True)
+    _dictation_start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    filename = datetime.now().strftime("%Y%m%d_%H%M%S.txt")
+    _dictation_path = DICTATION_DIR / filename
+    _dictation_file = open(_dictation_path, "a")
+    _dictation_line_count = 0
+    return {"status": "dictation_started", "path": str(_dictation_path)}
+
+
+@register(
+    name="stop_dictation",
+    description="Stop dictation mode and close the transcript file. Use when user says 'stop dictation', 'stop recording', 'end transcription', etc.",
+    parameters=[],
+)
+def stop_dictation():
+    global DICTATION_MODE, _dictation_file, _dictation_path
+    global _dictation_line_count, _dictation_start_time
+    DICTATION_MODE = False
+    path = str(_dictation_path) if _dictation_path else None
+    count = _dictation_line_count
+    if _dictation_file is not None:
+        _dictation_file.close()
+        _dictation_file = None
+    result = {"status": "dictation_stopped", "lines": count}
+    if path:
+        result["path"] = path
+    _dictation_path = None
+    _dictation_line_count = 0
+    _dictation_start_time = None
+    return result
+
+
+@register(
+    name="get_dictation_transcript",
+    description="Read a portion of the current dictation transcript. Use to review what has been said.",
+    parameters=[
+        {"name": "lines", "type": "number", "description": "Number of lines to return (default 50)"},
+        {"name": "offset", "type": "number", "description": "Number of lines to skip from the end (0 = most recent)"},
+    ],
+)
+def get_dictation_transcript(lines=50, offset=0):
+    if _dictation_path is None or not _dictation_path.exists():
+        return {"error": "No active dictation transcript"}
+    all_lines = _dictation_path.read_text().splitlines()
+    total = len(all_lines)
+    if offset > 0:
+        selected = all_lines[-(offset + lines):-offset] if offset + lines <= total else all_lines[:max(0, total - offset)]
+    else:
+        selected = all_lines[-lines:]
+    return {"total_lines": total, "returned": len(selected), "offset": offset, "lines": selected}
 
 
 @register(
