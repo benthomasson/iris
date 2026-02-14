@@ -107,6 +107,10 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
         logger.info("Energy threshold set to %s", r.energy_threshold)
 
         if on_status:
+            on_status("Warming up camera...")
+        functions.init_camera()
+
+        if on_status:
             on_status("Initializing Claude...")
         response = llm.init_conversation()
         if on_display:
@@ -174,6 +178,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None):
                 on_status("Listening...")
             time.sleep(1)
     finally:
+        functions.release_camera()
         if source.stream is not None:
             mic.__exit__(None, None, None)
 

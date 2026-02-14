@@ -305,6 +305,32 @@ def convert_units(value, from_unit, to_unit):
 
 # --- Vision ---
 
+_camera = None
+
+
+def init_camera():
+    """Open the webcam and warm it up. Call at startup."""
+    global _camera
+    import cv2
+    _camera = cv2.VideoCapture(0)
+    if not _camera.isOpened():
+        logger.error("Could not open webcam")
+        _camera = None
+        return False
+    # Warm up auto-exposure
+    for _ in range(30):
+        _camera.read()
+    logger.info("Camera ready")
+    return True
+
+
+def release_camera():
+    """Release the webcam."""
+    global _camera
+    if _camera is not None:
+        _camera.release()
+        _camera = None
+
 
 @register(
     name="capture_image",
@@ -312,25 +338,18 @@ def convert_units(value, from_unit, to_unit):
     parameters=[],
 )
 def capture_image():
+    if _camera is None or not _camera.isOpened():
+        return {"error": "Camera not available"}
+    ret, frame = _camera.read()
+    if not ret:
+        return {"error": "Could not capture frame"}
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = Path.home() / ".iris" / "captures"
+    path.mkdir(parents=True, exist_ok=True)
+    filepath = path / f"{timestamp}.png"
     import cv2
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        return {"error": "Could not open webcam"}
-    try:
-        # Let the camera auto-expose before capturing
-        for _ in range(30):
-            cap.read()
-        ret, frame = cap.read()
-        if not ret:
-            return {"error": "Could not capture frame"}
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = Path.home() / ".iris" / "captures"
-        path.mkdir(parents=True, exist_ok=True)
-        filepath = path / f"{timestamp}.png"
-        cv2.imwrite(str(filepath), frame)
-        return {"status": "captured", "path": str(filepath)}
-    finally:
-        cap.release()
+    cv2.imwrite(str(filepath), frame)
+    return {"status": "captured", "path": str(filepath)}
 
 
 # --- Stubs (not yet implemented) ---
