@@ -95,11 +95,28 @@ def get_input(r=None, source=None, input_queue=None):
     return recognize_audio(r, source)
 
 
+def _edit_distance(a, b):
+    """Damerau-Levenshtein distance (transpositions count as 1 edit)."""
+    len_a, len_b = len(a), len(b)
+    d = [[0] * (len_b + 1) for _ in range(len_a + 1)]
+    for i in range(len_a + 1):
+        d[i][0] = i
+    for j in range(len_b + 1):
+        d[0][j] = j
+    for i in range(1, len_a + 1):
+        for j in range(1, len_b + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[len_a][len_b]
+
+
 def is_wake_word(text):
     """Check if text contains a wake word to exit inactive mode."""
     name = llm.ASSISTANT_NAME.lower()
     words = text.lower().split()
-    if name in words:
+    if any(_edit_distance(w, name) <= 1 for w in words):
         return True
     if "wake" in words and "up" in words:
         return True
