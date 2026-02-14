@@ -102,8 +102,8 @@ def is_wake_word(text):
     return False
 
 
-def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
-               quiet=False, input_queue=None, intro=None):
+def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
+               on_exit=None, quiet=False, input_queue=None, intro=None):
     """Initialize Claude and listen/respond loop."""
     mic = None
     source = None
@@ -217,6 +217,8 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
                         voice.say("Going to sleep.")
                         active = False
                         idle_count = 0
+                        if on_sleep:
+                            on_sleep(True)
                         if on_status:
                             name = llm.ASSISTANT_NAME
                             on_status(f"Sleeping (say '{name}' to wake)")
@@ -232,6 +234,8 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
                     voice.say("I'm here.")
                     active = True
                     idle_count = 0
+                    if on_sleep:
+                        on_sleep(False)
                     if on_status:
                         on_status("Listening...")
                     else:
@@ -285,6 +289,8 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
                 voice.say("Going to sleep.")
                 active = False
                 idle_count = 0
+                if on_sleep:
+                    on_sleep(True)
                 if on_status:
                     name = llm.ASSISTANT_NAME
                     on_status(f"Sleeping (say '{name}' to wake)")
@@ -337,6 +343,7 @@ def main(args=None):
                 prompt,
                 on_display=app.display_callback,
                 on_status=app.status_callback,
+                on_sleep=app.sleep_callback,
                 on_exit=app.exit,
                 quiet=quiet,
                 input_queue=app.input_queue if quiet else None,

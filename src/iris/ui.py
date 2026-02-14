@@ -20,6 +20,12 @@ class StatusUpdate(Message):
         self.text = text
 
 
+class SleepUpdate(Message):
+    def __init__(self, sleeping: bool):
+        super().__init__()
+        self.sleeping = sleeping
+
+
 class VoiceApp(App):
     CSS = """
     #user-label {
@@ -49,6 +55,9 @@ class VoiceApp(App):
     #text-input {
         dock: bottom;
         display: none;
+    }
+    Vertical.sleeping {
+        opacity: 0.5;
     }
     """
 
@@ -98,6 +107,13 @@ class VoiceApp(App):
     def on_status_update(self, message: StatusUpdate) -> None:
         self.query_one("#status", Static).update(message.text)
 
+    def on_sleep_update(self, message: SleepUpdate) -> None:
+        container = self.query_one("Vertical")
+        if message.sleeping:
+            container.add_class("sleeping")
+        else:
+            container.remove_class("sleeping")
+
     def action_force_quit(self) -> None:
         """Force quit — kills worker thread and subprocesses."""
         os.system("stty sane && clear")
@@ -110,3 +126,7 @@ class VoiceApp(App):
     def status_callback(self, text: str) -> None:
         """Thread-safe callback to update the status bar."""
         self.post_message(StatusUpdate(text))
+
+    def sleep_callback(self, sleeping: bool) -> None:
+        """Thread-safe callback to toggle sleep mode visuals."""
+        self.post_message(SleepUpdate(sleeping))
