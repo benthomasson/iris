@@ -37,14 +37,26 @@ multiprocessing.resource_tracker.ensure_running()
 logger = logging.getLogger('computer')
 
 
+LOG_DIR = os.path.expanduser("~/.iris/logs")
+
+
 def parse_args(args):
     parsed_args = docopt(__doc__, args)
+    os.makedirs(LOG_DIR, exist_ok=True)
+    from datetime import datetime
+    log_file = os.path.join(LOG_DIR, datetime.now().strftime("%Y%m%d_%H%M%S.log"))
+    handlers = [logging.FileHandler(log_file)]
     if parsed_args['--debug']:
-        logging.basicConfig(level=logging.DEBUG)
+        level = logging.DEBUG
+        handlers.append(logging.StreamHandler())
     elif parsed_args['--verbose']:
-        logging.basicConfig(level=logging.INFO)
+        level = logging.INFO
+        handlers.append(logging.StreamHandler())
     else:
-        logging.basicConfig(level=logging.WARNING)
+        level = logging.INFO
+    logging.basicConfig(level=level, handlers=handlers,
+                        format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    logger.info("Log file: %s", log_file)
     return parsed_args
 
 
@@ -87,7 +99,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
         voice.QUIET = True
     else:
         r = sr.Recognizer()
-        r.pause_threshold = 3.0
+        r.pause_threshold = 1.5
         r.dynamic_energy_threshold = False
         r.energy_threshold = 300
         try:
@@ -173,6 +185,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
 
             if on_status:
                 on_status("Processing...")
+            logger.info("User: %s", text)
             print(f"You said '{text}'")
 
             try:
@@ -180,6 +193,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
                     text = prompt + " " + text
                 response = llm.generate_response(text)
                 speech, json_data = llm.parse_response(response)
+                logger.info("Iris: %s", speech)
                 if on_display:
                     on_display(text, response)
                 if json_data:

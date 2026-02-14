@@ -106,10 +106,10 @@ def get_weather(location):
         }
         return {
             "location": name,
-            "temperature": current["temperature_2m"],
-            "humidity": current["relative_humidity_2m"],
+            "temperature_c": current["temperature_2m"],
+            "humidity_pct": current["relative_humidity_2m"],
             "condition": conditions.get(code, f"code {code}"),
-            "wind_speed": current["wind_speed_10m"],
+            "wind_speed_kmh": current["wind_speed_10m"],
         }
     except Exception as e:
         logger.error("Weather lookup failed: %s", e)
