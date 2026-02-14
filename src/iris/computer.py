@@ -32,7 +32,7 @@ from . import llm
 from . import voice
 from .ui import VoiceApp
 
-IDLE_CYCLES_BEFORE_INACTIVE = 5  # ~25s of silence with 5s listen timeout
+IDLE_CYCLES_BEFORE_INACTIVE = 25  # ~125s of silence with 5s listen timeout
 VISUAL_INTERVAL = 10  # seconds between visual mode captures
 
 # Warm up the multiprocessing resource tracker before Textual takes over,
@@ -65,12 +65,36 @@ def parse_args(args):
     return parsed_args
 
 
+def _listen_with_watchdog(r, source, timeout, phrase_limit):
+    """Run r.listen() in a thread with a hard watchdog timeout."""
+    import threading
+    result = [None]
+    error = [None]
+
+    def _listen():
+        try:
+            result[0] = r.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
+        except Exception as e:
+            error[0] = e
+
+    t = threading.Thread(target=_listen, daemon=True)
+    t.start()
+    # Wait for listen + phrase_limit + generous buffer
+    watchdog = timeout + phrase_limit + 10
+    t.join(timeout=watchdog)
+    if t.is_alive():
+        raise OSError(f"Microphone hung (no response in {watchdog}s)")
+    if error[0] is not None:
+        raise error[0]
+    return result[0]
+
+
 def recognize_audio(r, source):
     try:
         timeout = 3 if functions.VISUAL_MODE else 5
         phrase_limit = 3 if functions.VISUAL_MODE else 30
         logger.debug("Listening... (energy_threshold=%s)", r.energy_threshold)
-        audio_data = r.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
+        audio_data = _listen_with_watchdog(r, source, timeout, phrase_limit)
         duration = len(audio_data.frame_data) / (audio_data.sample_rate * audio_data.sample_width)
         logger.info("Captured %.1fs of audio (threshold=%s)", duration, r.energy_threshold)
         if duration < 0.5:
@@ -80,6 +104,12 @@ def recognize_audio(r, source):
     except sr.WaitTimeoutError:
         logger.debug("Listen timed out waiting for speech")
         text = ""
+    except OSError as e:
+        logger.error("Microphone error: %s", e)
+        return None
+    except Exception as e:
+        logger.error("Audio capture failed: %s", e)
+        return None
     return text
 
 
