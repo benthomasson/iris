@@ -17,6 +17,7 @@ uv run iris [options]
 uv run iris --debug                        # no TUI, prints to stdout
 uv run iris --quiet                        # text input, no speech output
 uv run iris --debug --quiet                # text input via stdin
+uv run iris --visual                       # periodic camera narration
 uv run iris-dictation [--debug] [--verbose]
 uv run iris-summarize [--chunk-size=<c>] [--tokens=<t>] <text-file>
 
@@ -31,6 +32,7 @@ pip install -e ".[dev]"
 | `--debug` | No TUI, prints to stdout | off |
 | `--verbose` | Show verbose logging | off |
 | `--quiet` | Text input, no speech output | off |
+| `--visual` | Enable visual mode (periodic camera capture) | off |
 | `--system=<file>` | Extra system prompt (appended to identity) | none |
 | `--intro=<file>` | First user message sent after init | none |
 | `--prompt=<file>` | Prepended to every user message | none |
@@ -48,25 +50,33 @@ pip install -e ".[dev]"
 
 ## Architecture
 
-**Data flow:** Microphone/text input → SpeechRecognition (Whisper, 16kHz) or stdin/TUI → text cleanup → `llm.generate_response()` → `parse_response()` splits speech/JSON → function execution if JSON contains `{"function": ...}` → `voice.say()` speaks non-JSON text → macOS `say` at 180 wpm
+**Data flow:** Microphone/text input → SpeechRecognition (Whisper, 16kHz) or stdin/TUI → text cleanup (lowercase, strip punctuation) → `llm.generate_response()` → `parse_response()` splits speech/JSON → function execution if JSON contains `{"function": ...}` → result sent back to Claude for conversational summary → `voice.say()` speaks text → macOS `say` at 180 wpm
+
+**State machine** (in `computer.py`):
+- **Active** — listening and responding. After each silence timeout with no speech, increments idle counter.
+- **Inactive/sleeping** — ignores all input except wake words. Camera released. Triggered by idle timeout (25 cycles, ~125s) or `go_to_sleep` function. Wake by saying the assistant's name (fuzzy matched via Damerau-Levenshtein, edit distance ≤ 1) or "wake up".
+- **Muted** — microphone input discarded, but visual mode captures continue on their interval. Only "unmute" is recognized.
+
+**Visual mode:** When enabled (via `--visual` flag or `start_visual_mode` function), captures a webcam frame every 10 seconds during idle/muted periods and sends it to Claude for narration. Uses shorter listen timeouts (3s timeout, 3s phrase limit) vs normal mode (5s timeout, 30s phrase limit).
 
 **Key modules (all under `src/iris/`):**
-- `computer.py` — Entry point (`iris`). Main loop with Textual TUI (or `--debug` for stdout). Handles function call execution and follow-up.
-- `llm.py` — Claude CLI wrapper. `init_conversation()` starts a session with the system prompt (includes available functions), `generate_response()` continues it via `claude -c -p`. `parse_response()` splits text from JSON blocks. Configurable assistant name with identity lookup.
-- `functions.py` — Local function registry. Use `@register(name, description, parameters)` decorator to add functions Claude can call. JSON format: `{"function": "name", "args": {...}}`. Includes vision (`capture_image`), weather, timer, calculator, notes, and more.
-- `voice.py` — TTS wrapper around macOS `say` command. Configurable voice, rate, and pitch. Respects `QUIET` flag.
-- `ui.py` — Textual full-screen TUI showing user speech and Claude response. Text input widget in quiet mode. Press `q` to quit.
-- `dictation.py` — Standalone transcription tool (`iris-dictation`).
-- `summarize.py` — Text summarization via LLM (`iris-summarize`).
+- `computer.py` — Entry point (`iris`). Main loop with Textual TUI (or `--debug` for stdout). Manages active/inactive/muted states, idle timeout, function call dispatch and follow-up. Watchdog thread wraps mic capture to detect hangs.
+- `llm.py` — Claude CLI wrapper. `init_conversation()` starts a session via `claude -p` with the system prompt (identity + function catalog). `generate_response()` continues it via `claude -c -p` (with `--allowedTools Read` for image reading). `parse_response()` splits text from JSON blocks via regex. Configurable assistant name with identity lookup.
+- `functions.py` — Local function registry. Use `@register(name, description, parameters)` decorator to add functions Claude can call. JSON format: `{"function": "name", "args": {...}}`. Includes weather (Open-Meteo), time, timers, calculator, notes, Wikipedia, unit conversion, camera capture, visual/mute mode, sleep, shutdown. Stubs for home automation, music, messaging.
+- `voice.py` — TTS wrapper around macOS `say` command. Configurable voice, rate (180 wpm), and pitch. Respects `QUIET` flag.
+- `ui.py` — Textual full-screen TUI showing user speech and Claude response. Status bar, sleep (dimmed) and mute (red background) visual states. Text input widget in quiet mode. Press `q` to quit.
+- `dictation.py` — Standalone transcription tool (`iris-dictation`). Threaded listener + recognizer with Whisper hallucination filtering.
+- `summarize.py` — Text summarization via LLM (`iris-summarize`). Chunks text using spaCy then summarizes each chunk.
 
-**Adding new functions:** Add a `@register` decorated function in `functions.py`. It will automatically appear in the system prompt sent to Claude.
+**Adding new functions:** Add a `@register` decorated function in `functions.py`. It will automatically appear in the system prompt sent to Claude. Functions raise `EnterInactiveMode` to trigger sleep or `SystemExit` to shut down.
 
 ## Code Conventions
 
 - CLI argument parsing uses `docopt` (docstring-based)
 - Internal imports use relative style (`from . import llm`)
-- Logging via standard `logging` module; controlled by `--debug`/`--verbose` flags
-- Whisper hallucination strings (e.g., repeated "1.5%") are filtered out
-- Audio: 16kHz sample rate, 3s pause threshold, 30s phrase time limit
-- Camera warms up at startup (30 frames for auto-exposure)
+- Logging via standard `logging` module; controlled by `--debug`/`--verbose` flags. Logs always written to `~/.iris/logs/`.
+- Whisper hallucination strings (e.g., repeated "15 15 15...", "1.5%") are filtered out
+- Audio: 16kHz sample rate, 1.5s pause threshold, energy threshold 300 (dynamic adjustment disabled)
+- Camera warms up at startup (30 frames for auto-exposure), released on sleep
 - Python 3.13 workaround: `multiprocessing.resource_tracker.ensure_running()` called at import time to avoid fd bug with Textual
+- Camera captures stored in `~/.iris/captures/`, notes in `~/.cvi_notes/`
