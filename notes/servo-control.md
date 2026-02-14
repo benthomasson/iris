@@ -137,6 +137,26 @@ def degrees_to_target(degrees):
     return int(us * 4)  # quarter-microseconds
 ```
 
+## Lego Technic Integration
+
+### Coupling Servos to Lego
+
+- **Press-fit** — Lego Technic axles (cross-shaped) can press into servo horn holes, hot glue to secure
+- **3D-printed adapter** — servo horn mount on one side, Lego axle on the other
+- **Lego-compatible servo brackets** — search "SG90 Lego mount" (BrickLink/GeeekPi etc.)
+
+### Gear Options
+
+- **Worm gear** — servo drives a Lego worm gear for slow, precise, self-locking movement (camera stays put when servo is off)
+- **Spur gears** — simple gear reduction for more torque
+- **Bevel gears** — for right-angle direction changes (useful for tilt axis)
+
+### Pan-Tilt with Lego
+
+- **Pan:** servo on base driving a Lego turntable (lazy susan piece) or worm gear
+- **Tilt:** servo driving a Lego Technic gear or linkage arm
+- MG90S has plenty of torque for Lego gears + C920 weight
+
 ## Notes
 
 - Servos draw significant current under load — don't power from USB
