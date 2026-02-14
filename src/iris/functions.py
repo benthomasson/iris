@@ -13,6 +13,7 @@ import urllib.parse
 import json
 from datetime import datetime
 from pathlib import Path
+from . import voice
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ NOTES_DIR = Path.home() / ".cvi_notes"
 def set_timer(seconds, label="timer"):
     def _timer():
         time.sleep(seconds)
-        subprocess.run(["say", "-r", "235", "--", f"Timer done: {label}"])
+        voice.say(f"Timer done: {label}")
 
     thread = threading.Thread(target=_timer, daemon=True)
     thread.start()
@@ -379,5 +380,5 @@ def send_message(recipient, message):
     parameters=[],
 )
 def shutdown():
-    subprocess.run(["say", "-r", "235", "--", "Goodbye"], start_new_session=True)
+    voice.say("Goodbye")
     raise SystemExit
