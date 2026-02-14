@@ -348,6 +348,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                     print("Sleeping")
                 continue
             except SystemExit:
+                voice.say(speech)
                 if on_exit:
                     on_exit()
                 return

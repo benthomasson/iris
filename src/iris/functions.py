@@ -501,5 +501,4 @@ def go_to_sleep():
     parameters=[],
 )
 def shutdown():
-    voice.say("Goodbye")
     raise SystemExit
