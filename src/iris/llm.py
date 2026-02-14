@@ -10,20 +10,33 @@ from . import functions
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
-    "Your name is Iris. You are named after the Greek goddess Iris, "
-    "the messenger of the gods who bridged heaven and earth, "
-    "and also for the iris of the eye, the part that lets light in. "
+ASSISTANT_NAME = "Iris"
+
+IDENTITY = {
+    "Iris": (
+        "Your name is Iris. You are named after the Greek goddess Iris, "
+        "the messenger of the gods who bridged heaven and earth, "
+        "and also for the iris of the eye, the part that lets light in. "
+    ),
+}
+
+SYSTEM_PROMPT_TEMPLATE = (
+    "{identity}"
     "You are a personal assistant with eyes, ears, and a voice. "
     "The user speaks to you and your responses will be read aloud. "
     "Respond in 1-2 sentences maximum. Be brief and conversational. "
     "Never use lists, markdown, or formatting. "
     "You have access to local functions you can call by including a JSON object "
-    'in your response with the format: {"function": "name", "args": {...}}. '
+    'in your response with the format: {{"function": "name", "args": {{...}}}}. '
     "The JSON will be executed locally and not read aloud. "
     "After calling a function, speak the result conversationally. "
     "Available functions:\n"
 )
+
+
+def get_system_prompt():
+    identity = IDENTITY.get(ASSISTANT_NAME, f"Your name is {ASSISTANT_NAME}. ")
+    return SYSTEM_PROMPT_TEMPLATE.format(identity=identity)
 
 
 def parse_response(response):
@@ -54,7 +67,7 @@ def parse_response(response):
 def init_conversation():
     """Start a new Claude conversation with the system prompt."""
     logger.info("Starting new Claude conversation")
-    prompt = SYSTEM_PROMPT + functions.get_prompt_description() + "\n\nIntroduce yourself briefly."
+    prompt = get_system_prompt() + functions.get_prompt_description() + "\n\nIntroduce yourself briefly."
     result = subprocess.run(
         ["claude", "-p", prompt],
         capture_output=True,

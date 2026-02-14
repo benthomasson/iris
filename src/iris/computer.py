@@ -2,14 +2,17 @@
 
 """
 Usage:
-    computer [options]
+    iris [options]
 
 Options:
-    -h, --help          Show this page
-    --debug             Show debug logging
-    --verbose           Show verbose logging
-    --quiet             Text input, no speech output
-    --prompt=<prompt>   Prompt to use
+    -h, --help              Show this page
+    --debug                 Show debug logging
+    --verbose               Show verbose logging
+    --quiet                 Text input, no speech output
+    --prompt=<prompt>       Prompt to use
+    --name=<name>           Assistant name [default: Iris]
+    --voice=<voice>         macOS TTS voice [default: Moira (Enhanced)]
+    --pitch=<pitch>         Voice pitch [default: 50]
 """
 from docopt import docopt
 import logging
@@ -219,6 +222,9 @@ def main(args=None):
             prompt = f.read()
 
     quiet = parsed_args['--quiet']
+    voice.VOICE = parsed_args['--voice']
+    voice.PITCH = int(parsed_args['--pitch'])
+    llm.ASSISTANT_NAME = parsed_args['--name']
 
     try:
         if parsed_args['--debug']:
