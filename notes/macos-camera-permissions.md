@@ -34,6 +34,7 @@ macOS revokes camera and microphone access when the screen locks. The revocation
 
 ### Workarounds
 
-- **Prevent display sleep**: `caffeinate -d` (built into macOS since 10.8, no install needed)
+- **Prevent display sleep**: `caffeinate -d` (built into macOS since 10.8, only lasts while running)
+- **Disable sleep entirely**: `sudo pmset -a disablesleep 1` (persists until reversed with `sudo pmset -a disablesleep 0`)
 - **System Settings**: Lock Screen > adjust "Turn display off" and "Require password" timers
 - **Error handling**: Consider graceful handling around `capture_image` calls in case the camera disappears mid-session
