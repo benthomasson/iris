@@ -3,7 +3,14 @@
 ## Hardware
 
 - **Pololu Maestro** USB servo controller (6-channel is plenty)
-- **2 servos** — one for pan (left/right), one for tilt (up/down)
+- **2x MG90S metal gear micro servos** — one for pan (left/right), one for tilt (up/down)
+  - 1.8kg/cm torque, 9g weight, 4.8-6V
+  - Metal gears are smoother and more durable than plastic SG90s
+  - ~$4-5 each, 4-packs under $15 on Amazon
+- **Logitech C920** webcam — ~162g (5.7oz), well within MG90S capacity
+- **SG90 pan-tilt bracket** — ~$5 plastic bracket designed for micro servos
+  - C920 has a clip mount, may need zip-tie or 3D-printed adapter
+  - Or start with a Lego mount for prototyping
 - **Power** — servos powered from Maestro's separate power rail (5-6V from Jackery), NOT from USB
 
 ### Wiring
