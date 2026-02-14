@@ -11,13 +11,15 @@
 - **SG90 pan-tilt bracket** — ~$5 plastic bracket designed for micro servos
   - C920 has a clip mount, may need zip-tie or 3D-printed adapter
   - Or start with a Lego mount for prototyping
-- **Power** — servos powered from Maestro's separate power rail (5-6V from Jackery), NOT from USB
+- **Power** — servos powered from Maestro's separate power rail, NOT from Mac's USB
+  - Jackery USB port works fine (5V, 2-3A capacity, servos draw ~200-300mA each)
+  - Use a USB breakout board or cut cable to connect Jackery USB to Maestro servo power rail
 
 ### Wiring
 
 ```
 Mac Mini USB → Maestro (data only)
-Jackery/battery → Maestro servo power rail (5-6V)
+Jackery USB → Maestro servo power rail (5V, via USB breakout/cut cable)
 Pan servo → Maestro channel 0
 Tilt servo → Maestro channel 1
 ```
