@@ -16,6 +16,7 @@ Options:
     --voice=<voice>         macOS TTS voice [default: Moira (Enhanced)]
     --pitch=<pitch>         Voice pitch [default: 50]
     --visual                Enable visual mode (periodic camera capture)
+    --no-shutter            Disable camera shutter sound
 """
 from docopt import docopt
 import logging
@@ -26,6 +27,7 @@ import speech_recognition as sr
 import time
 import string
 import json
+import threading
 from . import functions
 from .functions import EnterInactiveMode
 from . import llm
@@ -65,9 +67,28 @@ def parse_args(args):
     return parsed_args
 
 
-def _listen_with_watchdog(r, source, timeout, phrase_limit):
+def _generate_with_timer(prompt_text, on_status=None):
+    """Run llm.generate_response with an elapsed-time counter on the status bar."""
+    if not on_status:
+        return llm.generate_response(prompt_text)
+    result = [None]
+
+    def _run():
+        result[0] = llm.generate_response(prompt_text)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    elapsed = 0
+    while t.is_alive():
+        t.join(timeout=1)
+        if t.is_alive():
+            elapsed += 1
+            on_status(f"Processing... ({elapsed}s)")
+    return result[0]
+
+
+def _listen_with_watchdog(r, source, timeout, phrase_limit, on_status=None):
     """Run r.listen() in a thread with a hard watchdog timeout."""
-    import threading
     result = [None]
     error = [None]
 
@@ -79,9 +100,16 @@ def _listen_with_watchdog(r, source, timeout, phrase_limit):
 
     t = threading.Thread(target=_listen, daemon=True)
     t.start()
-    # Wait for listen + phrase_limit + generous buffer
     watchdog = timeout + phrase_limit + 10
-    t.join(timeout=watchdog)
+    elapsed = 0
+    while elapsed < watchdog:
+        t.join(timeout=1)
+        if not t.is_alive():
+            break
+        elapsed += 1
+        remaining = max(0, watchdog - elapsed)
+        if on_status:
+            on_status(f"Listening... ({remaining}s)")
     if t.is_alive():
         raise OSError(f"Microphone hung (no response in {watchdog}s)")
     if error[0] is not None:
@@ -89,12 +117,12 @@ def _listen_with_watchdog(r, source, timeout, phrase_limit):
     return result[0]
 
 
-def recognize_audio(r, source):
+def recognize_audio(r, source, on_status=None):
     try:
         timeout = 3 if functions.VISUAL_MODE else 5
         phrase_limit = 3 if functions.VISUAL_MODE else 30
         logger.debug("Listening... (energy_threshold=%s)", r.energy_threshold)
-        audio_data = _listen_with_watchdog(r, source, timeout, phrase_limit)
+        audio_data = _listen_with_watchdog(r, source, timeout, phrase_limit, on_status=on_status)
         duration = len(audio_data.frame_data) / (audio_data.sample_rate * audio_data.sample_width)
         logger.info("Captured %.1fs of audio (threshold=%s)", duration, r.energy_threshold)
         if duration < 0.5:
@@ -113,7 +141,7 @@ def recognize_audio(r, source):
     return text
 
 
-def get_input(r=None, source=None, input_queue=None):
+def get_input(r=None, source=None, input_queue=None, on_status=None):
     """Get user input from mic, stdin, or TUI queue."""
     if input_queue is not None:
         return input_queue.get()
@@ -122,7 +150,7 @@ def get_input(r=None, source=None, input_queue=None):
             return input("> ")
         except (EOFError, KeyboardInterrupt):
             return None
-    return recognize_audio(r, source)
+    return recognize_audio(r, source, on_status=on_status)
 
 
 def _edit_distance(a, b):
@@ -198,7 +226,6 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
         logger.info("Calibrating microphone...")
         if on_status:
             on_status("Calibrating microphone...")
-        import threading
         calibrated = threading.Event()
         def _calibrate():
             try:
@@ -232,7 +259,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
         if intro:
             if on_status:
                 on_status("Processing intro...")
-            response = llm.generate_response(intro)
+            response = _generate_with_timer(intro, on_status=on_status)
             speech, _ = llm.parse_response(response)
             if on_display:
                 on_display(intro, response)
@@ -247,7 +274,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
             print("Ready")
         while True:
             try:
-                text = get_input(r, source, input_queue)
+                text = get_input(r, source, input_queue, on_status=on_status)
             except KeyboardInterrupt:
                 if on_exit:
                     on_exit()
@@ -273,7 +300,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                                 f"Read the image at {result['path']} and describe what you see. "
                                 "Narrate any changes or interesting details briefly."
                             )
-                            response = llm.generate_response(prompt_text)
+                            response = _generate_with_timer(prompt_text, on_status=on_status)
                             speech, _ = llm.parse_response(response)
                             if on_display:
                                 on_display("[visual]", response)
@@ -293,7 +320,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                                     f"Read the image at {result['path']} and describe what you see. "
                                     "Narrate any changes or interesting details briefly."
                                 )
-                                response = llm.generate_response(prompt_text)
+                                response = _generate_with_timer(prompt_text, on_status=on_status)
                                 speech, _ = llm.parse_response(response)
                                 if on_display:
                                     on_display("[visual]", response)
@@ -345,7 +372,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
             try:
                 if prompt:
                     text = prompt + " " + text
-                response = llm.generate_response(text)
+                response = _generate_with_timer(text, on_status=on_status)
                 speech, json_data = llm.parse_response(response)
                 logger.info("Iris: %s", speech)
                 if on_display:
@@ -353,8 +380,9 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                 if json_data:
                     print(json.dumps(json_data, indent=2))
 
-                # If Claude called a function, execute it and get a spoken summary
+                # If Claude called a function, speak initial text, then execute
                 if json_data and "function" in json_data:
+                    voice.say(speech)
                     result = functions.call(json_data["function"], json_data.get("args", {}))
                     print(json.dumps(result, indent=2))
                     image_path = result.get("path", "") if isinstance(result, dict) else ""
@@ -368,7 +396,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                             f"Function {json_data['function']} returned: {json.dumps(result)}. "
                             "Summarize the result conversationally."
                         )
-                    follow_up = llm.generate_response(follow_up_prompt)
+                    follow_up = _generate_with_timer(follow_up_prompt, on_status=on_status)
                     speech, _ = llm.parse_response(follow_up)
                     if on_display:
                         on_display(text, follow_up)
@@ -435,6 +463,8 @@ def main(args=None):
         llm.EXTRA_SYSTEM_PROMPT = system
     if parsed_args['--visual']:
         functions.VISUAL_MODE = True
+    if parsed_args['--no-shutter']:
+        functions.SHUTTER_SOUND = False
 
     try:
         if parsed_args['--debug']:

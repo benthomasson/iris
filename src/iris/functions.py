@@ -21,6 +21,7 @@ FUNCTION_REGISTRY = {}
 
 VISUAL_MODE = False
 MUTED = False
+SHUTTER_SOUND = True
 
 
 class EnterInactiveMode(Exception):
@@ -389,6 +390,11 @@ def capture_image():
     ret, frame = _camera.read()
     if not ret:
         return {"error": "Could not capture frame"}
+    if SHUTTER_SOUND:
+        subprocess.Popen(
+            ["afplay", "/System/Library/Sounds/Tink.aiff"],
+            start_new_session=True,
+        )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = Path.home() / ".iris" / "captures"
     path.mkdir(parents=True, exist_ok=True)
