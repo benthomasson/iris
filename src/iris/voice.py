@@ -13,9 +13,10 @@ def say(text):
         if QUIET:
             return
         try:
-            subprocess.run(
-                ["say", "-v", VOICE, "-r", str(RATE), "--", f"[[pbas {PITCH}]] " + text],
-                start_new_session=True,
-            )
+            cmd = ["say"]
+            if VOICE and VOICE.lower() != "none":
+                cmd += ["-v", VOICE]
+            cmd += ["-r", str(RATE), "--", f"[[pbas {PITCH}]] " + text]
+            subprocess.run(cmd, start_new_session=True)
         except KeyboardInterrupt:
             pass

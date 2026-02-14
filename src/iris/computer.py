@@ -191,7 +191,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_exit=None,
 
             text = text.strip().lower()
             text = text.translate(str.maketrans('', '', string.punctuation))
-            if text == "" or text == "15 15 15 15 15 15 15":
+            if text == "" or text in ("15 15 15 15 15 15 15", "25 25 25 25 25 25 25"):
                 continue
 
             if on_status:
