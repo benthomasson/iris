@@ -60,26 +60,27 @@ def get_system_prompt():
 def parse_response(response):
     """Split a response into spoken text and JSON data.
 
-    Returns (speech_text, json_data) where json_data is a parsed object
-    or None if no JSON was found.
+    Returns (speech_text, json_list) where json_list is a list of parsed
+    function call objects (may be empty).
     """
     # Match JSON objects (including nested) in the response
     json_pattern = re.compile(r'(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})')
     matches = json_pattern.findall(response)
 
-    json_data = None
+    json_list = []
     speech = response
     for match in matches:
         try:
-            json_data = json.loads(match)
-            speech = speech.replace(match, "").strip()
-            break
+            data = json.loads(match)
+            if "function" in data:
+                json_list.append(data)
+                speech = speech.replace(match, "", 1).strip()
         except json.JSONDecodeError:
             continue
 
     # Clean up leftover whitespace and punctuation artifacts
     speech = re.sub(r'\s+', ' ', speech).strip()
-    return speech, json_data
+    return speech, json_list
 
 
 def init_conversation():

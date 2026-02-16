@@ -19,6 +19,7 @@ Options:
     --passive               Start in passive mode (listen, respond only when addressed)
     --dictate               Start in dictation mode (transcribe to file, query on wake)
     --no-shutter            Disable camera shutter sound
+    --no-camera             Skip camera initialization
     --message=<contacts>    Message mode: respond via iMessage to named contacts (comma-separated)
 """
 from docopt import docopt
@@ -68,6 +69,37 @@ def parse_args(args):
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     logger.info("Log file: %s", log_file)
     return parsed_args
+
+
+def _execute_functions(json_list):
+    """Execute a list of function calls, return list of (name, result) tuples.
+
+    Raises EnterInactiveMode or SystemExit if any function triggers them.
+    """
+    results = []
+    for json_data in json_list:
+        name = json_data["function"]
+        args = json_data.get("args", {})
+        result = functions.call(name, args)
+        results.append((name, result))
+    return results
+
+
+def _build_follow_up(results):
+    """Build a follow-up prompt summarizing all function results."""
+    parts = []
+    image_path = None
+    for name, result in results:
+        path = result.get("path", "") if isinstance(result, dict) else ""
+        if path and path.endswith(".png"):
+            image_path = path
+        parts.append(f"{name} returned: {json.dumps(result)}")
+    if image_path and len(results) == 1:
+        return (
+            f"Read the image at {image_path} and describe what you see. "
+            "Be brief and conversational."
+        )
+    return "Functions called:\n" + "\n".join(parts) + "\nSummarize the results conversationally."
 
 
 def _generate_with_timer(prompt_text, on_status=None):
@@ -185,7 +217,8 @@ def is_wake_word(text):
 
 
 def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
-               on_mute=None, on_exit=None, quiet=False, input_queue=None, intro=None):
+               on_mute=None, on_exit=None, quiet=False, input_queue=None, intro=None,
+               no_camera=False):
     """Initialize Claude and listen/respond loop."""
     mic = None
     source = None
@@ -246,10 +279,11 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
         logger.info("Energy threshold set to %s", r.energy_threshold)
 
     try:
-        logger.info("Warming up camera...")
-        if on_status:
-            on_status("Warming up camera...")
-        functions.init_camera()
+        if not no_camera:
+            logger.info("Warming up camera...")
+            if on_status:
+                on_status("Warming up camera...")
+            functions.init_camera()
 
         logger.info("Initializing Claude...")
         if on_status:
@@ -334,30 +368,21 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                     if on_status:
                         on_status("Processing...")
                     response = _generate_with_timer(prompt_text, on_status=on_status)
-                    speech, json_data = llm.parse_response(response)
+                    speech, json_list = llm.parse_response(response)
                     if on_display:
                         on_display(f"[conversation] {text}", response)
                     # Handle function calls same as active mode
-                    if json_data and "function" in json_data:
+                    if json_list:
                         voice.say(speech)
-                        result = functions.call(json_data["function"], json_data.get("args", {}))
-                        image_path = result.get("path", "") if isinstance(result, dict) else ""
-                        if image_path and image_path.endswith(".png"):
-                            follow_up_prompt = (
-                                f"Read the image at {image_path} and describe what you see. "
-                                "Be brief and conversational."
-                            )
-                        else:
-                            follow_up_prompt = (
-                                f"Function {json_data['function']} returned: {json.dumps(result)}. "
-                                "Summarize the result conversationally."
-                            )
+                        results = _execute_functions(json_list)
+                        follow_up_prompt = _build_follow_up(results)
                         follow_up = _generate_with_timer(follow_up_prompt, on_status=on_status)
                         speech, _ = llm.parse_response(follow_up)
                         if on_display:
                             on_display(text, follow_up)
                         # Clear buffer and update status after toggling passive mode off
-                        if json_data.get("function") == "stop_passive_mode":
+                        called = {jd["function"] for jd in json_list}
+                        if "stop_passive_mode" in called:
                             passive_buffer.clear()
                             if on_status:
                                 on_status("Listening...")
@@ -403,36 +428,19 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                     if on_status:
                         on_status("Processing...")
                     response = _generate_with_timer(prompt_text, on_status=on_status)
-                    speech, json_data = llm.parse_response(response)
+                    speech, json_list = llm.parse_response(response)
                     if on_display:
                         on_display(f"[dictation] {text}", response)
-                    if json_data and "function" in json_data:
+                    if json_list:
                         voice.say(speech)
-                        try:
-                            result = functions.call(json_data["function"], json_data.get("args", {}))
-                        except EnterInactiveMode:
-                            raise
-                        except SystemExit:
-                            voice.say(speech)
-                            if on_exit:
-                                on_exit()
-                            return
-                        image_path = result.get("path", "") if isinstance(result, dict) else ""
-                        if image_path and image_path.endswith(".png"):
-                            follow_up_prompt = (
-                                f"Read the image at {image_path} and describe what you see. "
-                                "Be brief and conversational."
-                            )
-                        else:
-                            follow_up_prompt = (
-                                f"Function {json_data['function']} returned: {json.dumps(result)}. "
-                                "Summarize the result conversationally."
-                            )
+                        results = _execute_functions(json_list)
+                        follow_up_prompt = _build_follow_up(results)
                         follow_up = _generate_with_timer(follow_up_prompt, on_status=on_status)
                         speech, _ = llm.parse_response(follow_up)
                         if on_display:
                             on_display(text, follow_up)
-                        if json_data.get("function") == "stop_dictation":
+                        called = {jd["function"] for jd in json_list}
+                        if "stop_dictation" in called:
                             voice.say(speech)
                             if on_status:
                                 on_status("Listening...")
@@ -524,43 +532,35 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                 if prompt:
                     text = prompt + " " + text
                 response = _generate_with_timer(text, on_status=on_status)
-                speech, json_data = llm.parse_response(response)
+                speech, json_list = llm.parse_response(response)
                 logger.info("Iris: %s", speech)
                 if on_display:
                     on_display(text, response)
-                if json_data:
-                    print(json.dumps(json_data, indent=2))
+                if json_list:
+                    for jd in json_list:
+                        print(json.dumps(jd, indent=2))
 
-                # If Claude called a function, speak initial text, then execute
-                if json_data and "function" in json_data:
+                # If Claude called functions, speak initial text, then execute all
+                if json_list:
                     voice.say(speech)
-                    result = functions.call(json_data["function"], json_data.get("args", {}))
-                    print(json.dumps(result, indent=2))
-                    image_path = result.get("path", "") if isinstance(result, dict) else ""
-                    if image_path and image_path.endswith(".png"):
-                        follow_up_prompt = (
-                            f"Read the image at {image_path} and describe what you see. "
-                            "Be brief and conversational."
-                        )
-                    else:
-                        follow_up_prompt = (
-                            f"Function {json_data['function']} returned: {json.dumps(result)}. "
-                            "Summarize the result conversationally."
-                        )
+                    results = _execute_functions(json_list)
+                    for name, result in results:
+                        print(json.dumps(result, indent=2))
+                    follow_up_prompt = _build_follow_up(results)
                     follow_up = _generate_with_timer(follow_up_prompt, on_status=on_status)
                     speech, _ = llm.parse_response(follow_up)
                     if on_display:
                         on_display(text, follow_up)
 
-                    # Update UI when mute state changes
-                    if json_data.get("function") in ("mute_microphone", "unmute_microphone"):
+                    # Update UI based on which functions were called
+                    called = {jd["function"] for jd in json_list}
+                    if called & {"mute_microphone", "unmute_microphone"}:
                         if on_mute:
                             on_mute(functions.MUTED)
                         if on_status:
                             on_status("Muted (visual mode active)" if functions.MUTED else "Listening...")
 
-                    # Update UI when passive mode changes
-                    if json_data.get("function") in ("start_passive_mode", "stop_passive_mode"):
+                    if called & {"start_passive_mode", "stop_passive_mode"}:
                         if not functions.PASSIVE_MODE:
                             passive_buffer.clear()
                         if on_status:
@@ -569,8 +569,7 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
                             else:
                                 on_status("Listening...")
 
-                    # Update UI when dictation mode changes
-                    if json_data.get("function") in ("start_dictation", "stop_dictation"):
+                    if called & {"start_dictation", "stop_dictation"}:
                         if functions.DICTATION_MODE:
                             passive_buffer.clear()
                         if on_status:
@@ -652,7 +651,7 @@ def _get_max_rowid():
         return 0
 
 
-def message_loop(contacts_str, prompt=None, intro=None):
+def message_loop(contacts_str, prompt=None, intro=None, no_camera=False):
     """Main loop for message mode: poll iMessages and respond via iMessage."""
     voice.QUIET = True
     llm.MESSAGE_MODE = True
@@ -676,12 +675,18 @@ def message_loop(contacts_str, prompt=None, intro=None):
         return
 
     # Initialize camera and Claude
-    logger.info("Warming up camera...")
-    functions.init_camera()
+    if not no_camera:
+        logger.info("Warming up camera...")
+        functions.init_camera()
 
     logger.info("Initializing Claude...")
     response = llm.init_conversation()
     logger.info("Claude: %s", response)
+
+    # Notify contacts that Iris is online
+    for handle, name in handles.items():
+        functions._send_imessage_to_handle(handle, f"Hi, {llm.ASSISTANT_NAME} is online.")
+        logger.info("Sent online notification to %s (%s)", name, handle)
 
     # Start polling from current max ROWID (only respond to new messages)
     last_rowid = _get_max_rowid()
@@ -707,36 +712,28 @@ def message_loop(contacts_str, prompt=None, intro=None):
                     if prompt:
                         prompt_text = prompt + " " + prompt_text
                     response = llm.generate_response(prompt_text)
-                    speech, json_data = llm.parse_response(response)
+                    speech, json_list = llm.parse_response(response)
                     logger.info("Iris: %s", response)
 
                     # Handle function calls
-                    if json_data and "function" in json_data:
-                        logger.info("Calling function: %s(%s)",
-                                    json_data["function"], json_data.get("args", {}))
+                    if json_list:
+                        for jd in json_list:
+                            logger.info("Calling function: %s(%s)",
+                                        jd["function"], jd.get("args", {}))
                         try:
-                            result = functions.call(json_data["function"], json_data.get("args", {}))
+                            results = _execute_functions(json_list)
                         except EnterInactiveMode:
                             logger.info("Sleep requested in message mode, ignoring")
-                            result = {"status": "sleep not available in message mode"}
+                            results = [("go_to_sleep", {"status": "sleep not available in message mode"})]
                         except SystemExit:
                             print(f"  -> {speech}")
                             if speech:
                                 functions._send_imessage_to_handle(sender, speech)
                             return
 
-                        print(f"  [fn] {json_data['function']} -> {json.dumps(result)}")
-                        image_path = result.get("path", "") if isinstance(result, dict) else ""
-                        if image_path and image_path.endswith(".png"):
-                            follow_up_prompt = (
-                                f"Read the image at {image_path} and describe what you see. "
-                                "Be brief and conversational."
-                            )
-                        else:
-                            follow_up_prompt = (
-                                f"Function {json_data['function']} returned: {json.dumps(result)}. "
-                                "Summarize the result conversationally."
-                            )
+                        for name, result in results:
+                            print(f"  [fn] {name} -> {json.dumps(result)}")
+                        follow_up_prompt = _build_follow_up(results)
                         follow_up = llm.generate_response(follow_up_prompt)
                         speech, _ = llm.parse_response(follow_up)
 
@@ -791,16 +788,19 @@ def main(args=None):
     if parsed_args['--dictate']:
         functions.start_dictation()
 
+    no_camera = parsed_args['--no-camera']
+
     if parsed_args['--message']:
         try:
-            message_loop(parsed_args['--message'], prompt=prompt, intro=intro)
+            message_loop(parsed_args['--message'], prompt=prompt, intro=intro,
+                         no_camera=no_camera)
         except KeyboardInterrupt:
             pass
         return 0
 
     try:
         if parsed_args['--debug']:
-            audio_loop(prompt, quiet=quiet, intro=intro)
+            audio_loop(prompt, quiet=quiet, intro=intro, no_camera=no_camera)
         else:
             app = VoiceApp(lambda: audio_loop(
                 prompt,
@@ -811,6 +811,7 @@ def main(args=None):
                 on_exit=app.exit,
                 quiet=quiet,
                 input_queue=app.input_queue if quiet else None,
+                no_camera=no_camera,
                 intro=intro,
             ), quiet=quiet)
             app.run()
