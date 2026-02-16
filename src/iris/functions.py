@@ -24,6 +24,8 @@ MUTED = False
 PASSIVE_MODE = False
 DICTATION_MODE = False
 SHUTTER_SOUND = True
+_timer_callback = None  # optional callback(sender, msg) for timer completion
+_current_sender = None  # set by message_loop before executing functions
 
 DICTATION_DIR = Path.home() / ".iris" / "dictation"
 _dictation_file = None
@@ -169,9 +171,15 @@ _active_timers = []  # list of {"label", "cancel"} dicts
 def set_timer(seconds, label="timer"):
     cancelled = threading.Event()
 
+    sender = _current_sender  # capture sender at creation time
+
     def _timer():
         if not cancelled.wait(seconds):
-            voice.say(f"Timer done: {label}")
+            msg = f"Timer done: {label}"
+            if _timer_callback and sender:
+                _timer_callback(sender, msg)
+            else:
+                voice.say(msg)
         _active_timers[:] = [t for t in _active_timers if not t["cancel"].is_set()]
 
     entry = {"label": label, "cancel": cancelled}

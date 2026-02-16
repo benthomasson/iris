@@ -674,6 +674,13 @@ def message_loop(contacts_str, prompt=None, intro=None, no_camera=False):
         print("No contacts to monitor.")
         return
 
+    # Set timer callback to send iMessage to the person who set it
+    def _timer_notify(sender, msg):
+        functions._send_imessage_to_handle(sender, msg)
+        name = handles.get(sender, sender)
+        print(f"  [timer -> {name}] {msg}")
+    functions._timer_callback = _timer_notify
+
     # Initialize camera and Claude
     if not no_camera:
         logger.info("Warming up camera...")
@@ -721,6 +728,7 @@ def message_loop(contacts_str, prompt=None, intro=None, no_camera=False):
                             logger.info("Calling function: %s(%s)",
                                         jd["function"], jd.get("args", {}))
                         try:
+                            functions._current_sender = sender
                             results = _execute_functions(json_list)
                         except EnterInactiveMode:
                             logger.info("Sleep requested in message mode, ignoring")
@@ -754,6 +762,8 @@ def message_loop(contacts_str, prompt=None, intro=None, no_camera=False):
     except KeyboardInterrupt:
         print("\nMessage mode stopped.")
     finally:
+        functions._timer_callback = None
+        functions._current_sender = None
         functions.release_camera()
 
 
