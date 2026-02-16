@@ -86,9 +86,9 @@ def parse_response(response):
     return speech, json_list
 
 
-def init_conversation():
+def init_conversation(cwd=None):
     """Start a new Claude conversation with the system prompt."""
-    logger.info("Starting new Claude conversation")
+    logger.info("Starting new Claude conversation (cwd=%s)", cwd)
     intro = (
         "Introduce yourself briefly. You are watching through the camera and ready to read aloud, play a game, or narrate what you see."
         if functions.VISUAL_MODE else
@@ -100,6 +100,7 @@ def init_conversation():
         capture_output=True,
         text=True,
         start_new_session=True,
+        cwd=cwd,
     )
     return result.stdout.strip()
 
@@ -107,7 +108,8 @@ def init_conversation():
 def generate_response(
     prompt,
     temperature=0.9,
-    max_tokens=None
+    max_tokens=None,
+    cwd=None,
 ):
     start = time.time()
 
@@ -118,6 +120,7 @@ def generate_response(
             capture_output=True,
             start_new_session=True,
             text=True,
+            cwd=cwd,
         )
         return result.stdout.strip()
     except KeyboardInterrupt:

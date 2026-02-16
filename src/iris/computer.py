@@ -681,14 +681,22 @@ def message_loop(contacts_str, prompt=None, intro=None, no_camera=False):
         print(f"  [timer -> {name}] {msg}")
     functions._timer_callback = _timer_notify
 
-    # Initialize camera and Claude
+    # Initialize camera
     if not no_camera:
         logger.info("Warming up camera...")
         functions.init_camera()
 
-    logger.info("Initializing Claude...")
-    response = llm.init_conversation()
-    logger.info("Claude: %s", response)
+    # Create per-contact session directories and initialize Claude for each
+    sessions_dir = os.path.expanduser("~/.iris/message_sessions")
+    contact_dirs = {}  # handle -> cwd
+    for handle, name in handles.items():
+        safe_name = name.replace(" ", "_").replace("/", "_").lower()
+        cwd = os.path.join(sessions_dir, safe_name)
+        os.makedirs(cwd, exist_ok=True)
+        contact_dirs[handle] = cwd
+        logger.info("Initializing Claude session for %s in %s", name, cwd)
+        response = llm.init_conversation(cwd=cwd)
+        logger.info("Claude (%s): %s", name, response)
 
     # Notify contacts that Iris is online
     for handle, name in handles.items():
@@ -709,18 +717,19 @@ def message_loop(contacts_str, prompt=None, intro=None, no_camera=False):
                 text = msg["text"]
                 sender = msg["sender"]
                 contact_name = handles.get(sender, sender)
+                cwd = contact_dirs[sender]
                 last_rowid = max(last_rowid, rowid)
 
                 logger.info("Message from %s (%s): %s", contact_name, sender, text)
                 print(f"\n[{contact_name}] {text}")
 
                 try:
-                    prompt_text = f"[Message from {contact_name}] {text}"
+                    prompt_text = text
                     if prompt:
                         prompt_text = prompt + " " + prompt_text
-                    response = llm.generate_response(prompt_text)
+                    response = llm.generate_response(prompt_text, cwd=cwd)
                     speech, json_list = llm.parse_response(response)
-                    logger.info("Iris: %s", response)
+                    logger.info("Iris -> %s: %s", contact_name, response)
 
                     # Handle function calls
                     if json_list:
@@ -742,7 +751,7 @@ def message_loop(contacts_str, prompt=None, intro=None, no_camera=False):
                         for name, result in results:
                             print(f"  [fn] {name} -> {json.dumps(result)}")
                         follow_up_prompt = _build_follow_up(results)
-                        follow_up = llm.generate_response(follow_up_prompt)
+                        follow_up = llm.generate_response(follow_up_prompt, cwd=cwd)
                         speech, _ = llm.parse_response(follow_up)
 
                     if speech:
