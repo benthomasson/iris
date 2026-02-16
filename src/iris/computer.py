@@ -703,9 +703,10 @@ def message_loop(contacts_str, prompt=None, intro=None):
                 print(f"\n[{contact_name}] {text}")
 
                 try:
+                    prompt_text = f"[Message from {contact_name}] {text}"
                     if prompt:
-                        text = prompt + " " + text
-                    response = llm.generate_response(text)
+                        prompt_text = prompt + " " + prompt_text
+                    response = llm.generate_response(prompt_text)
                     speech, json_data = llm.parse_response(response)
                     logger.info("Iris: %s", response)
 
