@@ -38,6 +38,7 @@ pip install -e ".[dev]"
 | `--passive` | Start in passive mode (listen, respond only when addressed) | off |
 | `--dictate` | Start in dictation mode (transcribe to file, query on wake) | off |
 | `--message=<contacts>` | Message mode: respond via iMessage to named contacts (comma-separated) | none |
+| `--no-camera` | Skip camera initialization | off |
 | `--system=<file>` | Extra system prompt (appended to identity) | none |
 | `--intro=<file>` | First user message sent after init | none |
 | `--prompt=<file>` | Prepended to every user message | none |
@@ -55,7 +56,7 @@ pip install -e ".[dev]"
 
 ## Architecture
 
-**Data flow:** Microphone/text input → SpeechRecognition (Whisper, 16kHz) or stdin/TUI → text cleanup (lowercase, strip punctuation) → `llm.generate_response()` → `parse_response()` splits speech/JSON → function execution if JSON contains `{"function": ...}` → result sent back to Claude for conversational summary → `voice.say()` speaks text → macOS `say` at 180 wpm
+**Data flow:** Microphone/text input → SpeechRecognition (Whisper, 16kHz) or stdin/TUI → text cleanup (lowercase, strip punctuation) → `llm.generate_response()` → `parse_response()` splits speech from JSON blocks → all function calls executed (`_execute_functions`) → combined results sent back to Claude for conversational summary (`_build_follow_up`) → `voice.say()` speaks text → macOS `say` at 180 wpm. Multiple function calls in a single response are supported.
 
 **State machine** (in `computer.py`):
 - **Active** — listening and responding. After each silence timeout with no speech, increments idle counter.
@@ -69,7 +70,7 @@ pip install -e ".[dev]"
 
 **Key modules (all under `src/iris/`):**
 - `computer.py` — Entry point (`iris`). Main loop with Textual TUI (or `--debug` for stdout). Manages active/inactive/muted/passive states, idle timeout, function call dispatch and follow-up. Watchdog thread wraps mic capture to detect hangs.
-- `llm.py` — Claude CLI wrapper. `init_conversation()` starts a session via `claude -p` with the system prompt (identity + function catalog). `generate_response()` continues it via `claude -c -p` (with `--allowedTools Read` for image reading). `parse_response()` splits text from JSON blocks via regex. Configurable assistant name with identity lookup.
+- `llm.py` — Claude CLI wrapper. `init_conversation()` starts a session via `claude -p` with the system prompt (identity + function catalog). `generate_response()` continues it via `claude -c -p` (with `--allowedTools Read` for image reading). `parse_response()` extracts all JSON function blocks from a response (returns a list). Configurable assistant name with identity lookup. `MESSAGE_MODE` flag selects an iMessage-appropriate system prompt.
 - `functions.py` — Local function registry. Use `@register(name, description, parameters)` decorator to add functions Claude can call. JSON format: `{"function": "name", "args": {...}}`. Includes weather (Open-Meteo), time, timers, calculator, notes, Wikipedia, unit conversion, camera capture, visual/mute/passive/dictation mode, iMessage (send/read/list), sleep, shutdown. Stubs for home automation, music.
 - `voice.py` — TTS wrapper around macOS `say` command. Configurable voice, rate (180 wpm), and pitch. Respects `QUIET` flag.
 - `ui.py` — Textual full-screen TUI showing user speech and Claude response. Status bar, sleep (dimmed) and mute (red background) visual states. Text input widget in quiet mode. Press `q` to quit.

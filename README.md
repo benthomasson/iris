@@ -30,6 +30,7 @@ iris [options]
 | `--passive` | Start in passive mode (listen, respond only when addressed) | off |
 | `--dictate` | Start in dictation mode (transcribe to file, query on wake) | off |
 | `--message=<contacts>` | Message mode: respond via iMessage to named contacts (comma-separated) | none |
+| `--no-camera` | Skip camera initialization | off |
 | `--no-shutter` | Disable camera shutter sound | off |
 | `--system=<file>` | Extra system prompt (appended to identity) | none |
 | `--intro=<file>` | First user message sent after init | none |
@@ -59,7 +60,7 @@ iris --system=chess.txt --intro=game_start.txt
 - **Text-to-speech** via macOS `say` with configurable voice, rate, and pitch
 - **Webcam vision** — capture images and send to Claude for description
 - **Visual mode** — periodic camera capture with narration (even while muted)
-- **Local function calling** — Claude emits JSON blocks that are executed locally:
+- **Local function calling** — Claude emits JSON blocks that are executed locally (multiple calls per response supported):
   - Weather (Open-Meteo, no API key), time/date, timers, calculator
   - Notes/reminders, Wikipedia summaries, unit conversion
   - Camera capture, visual mode toggle, mute/unmute
