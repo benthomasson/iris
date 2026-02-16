@@ -74,7 +74,7 @@ iris --system=chess.txt --intro=game_start.txt
 - **Mute** — mic off but visual mode continues
 - **Passive mode** — buffers speech locally, only sends to Claude when addressed by name
 - **Dictation mode** — continuously transcribes speech to a timestamped file in `~/.iris/dictation/`, crash-safe (flushed per line). Say the assistant's name to query Claude about the transcript. Transcript accumulates across interactions. Useful for meetings, lectures, and brainstorming sessions.
-- **Message mode** — polls iMessage for incoming texts from specified contacts, responds via iMessage. Same Claude conversation and function calling as voice mode. Contact names resolved via Contacts.app.
+- **Message mode** — polls iMessage for incoming texts from specified contacts, responds via iMessage. Each contact gets a separate Claude conversation (no context bleed). Same function calling as voice mode. Contact names resolved via Contacts.app.
 
 ## Other tools
 
