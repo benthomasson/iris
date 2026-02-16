@@ -606,20 +606,8 @@ def list_conversations():
         return {"error": str(e)}
 
 
-@register(
-    name="send_message",
-    description="Send an iMessage to a contact by name or phone number",
-    parameters=[
-        {"name": "recipient", "type": "string", "description": "Contact name or phone number"},
-        {"name": "message", "type": "string", "description": "The message content"},
-    ],
-)
-def send_message(recipient, message):
-    try:
-        handle = _resolve_recipient(recipient)
-    except RuntimeError as e:
-        return {"error": str(e)}
-
+def _send_imessage_to_handle(handle, message):
+    """Send an iMessage to a resolved handle. Returns True on success, error string on failure."""
     escaped_msg = message.replace("\\", "\\\\").replace('"', '\\"')
     escaped_handle = handle.replace("\\", "\\\\").replace('"', '\\"')
     script = (
@@ -635,11 +623,31 @@ def send_message(recipient, message):
             capture_output=True, text=True, timeout=10,
         )
         if result.returncode != 0:
-            return {"error": result.stderr.strip()}
-        return {"status": "sent", "recipient": recipient, "handle": handle, "message": message}
+            return result.stderr.strip()
+        return True
     except Exception as e:
-        logger.error("send_message failed: %s", e)
+        return str(e)
+
+
+@register(
+    name="send_message",
+    description="Send an iMessage to a contact by name or phone number",
+    parameters=[
+        {"name": "recipient", "type": "string", "description": "Contact name or phone number"},
+        {"name": "message", "type": "string", "description": "The message content"},
+    ],
+)
+def send_message(recipient, message):
+    try:
+        handle = _resolve_recipient(recipient)
+    except RuntimeError as e:
         return {"error": str(e)}
+
+    result = _send_imessage_to_handle(handle, message)
+    if result is True:
+        return {"status": "sent", "recipient": recipient, "handle": handle, "message": message}
+    logger.error("send_message failed: %s", result)
+    return {"error": result}
 
 
 @register(

@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 ASSISTANT_NAME = "Iris"
 EXTRA_SYSTEM_PROMPT = None
+MESSAGE_MODE = False
 
 IDENTITY = {
     "Iris": (
@@ -34,10 +35,23 @@ SYSTEM_PROMPT_TEMPLATE = (
     "Available functions:\n"
 )
 
+MESSAGE_PROMPT_TEMPLATE = (
+    "{identity}"
+    "You are a personal assistant communicating via iMessage. "
+    "Keep responses concise (1-3 sentences). Be conversational. "
+    "Do not use markdown, lists, or formatting — plain text only. "
+    "You have access to local functions you can call by including a JSON object "
+    'in your response with the format: {{"function": "name", "args": {{...}}}}. '
+    "The JSON will be executed locally and not sent in the message. "
+    "After calling a function, summarize the result conversationally. "
+    "Available functions:\n"
+)
+
 
 def get_system_prompt():
     identity = IDENTITY.get(ASSISTANT_NAME, f"Your name is {ASSISTANT_NAME}. ")
-    prompt = SYSTEM_PROMPT_TEMPLATE.format(identity=identity)
+    template = MESSAGE_PROMPT_TEMPLATE if MESSAGE_MODE else SYSTEM_PROMPT_TEMPLATE
+    prompt = template.format(identity=identity)
     if EXTRA_SYSTEM_PROMPT:
         prompt += "\n" + EXTRA_SYSTEM_PROMPT + "\n"
     return prompt

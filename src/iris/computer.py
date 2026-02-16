@@ -19,6 +19,7 @@ Options:
     --passive               Start in passive mode (listen, respond only when addressed)
     --dictate               Start in dictation mode (transcribe to file, query on wake)
     --no-shutter            Disable camera shutter sound
+    --message=<contacts>    Message mode: respond via iMessage to named contacts (comma-separated)
 """
 from docopt import docopt
 import logging
@@ -611,6 +612,153 @@ def audio_loop(prompt=None, on_display=None, on_status=None, on_sleep=None,
             mic.__exit__(None, None, None)
 
 
+def _poll_new_messages(handles, last_rowid):
+    """Poll chat.db for new incoming messages from the given handles since last_rowid."""
+    import subprocess as sp
+    handle_list = ",".join(f"'{h}'" for h in handles)
+    sql = (
+        f"SELECT message.ROWID, message.text, handle.id as sender "
+        f"FROM message "
+        f"JOIN handle ON message.handle_id = handle.ROWID "
+        f"WHERE message.ROWID > {last_rowid} "
+        f"AND message.is_from_me = 0 "
+        f"AND message.text IS NOT NULL "
+        f"AND handle.id IN ({handle_list}) "
+        f"ORDER BY message.date ASC;"
+    )
+    chat_db = str(functions._CHAT_DB)
+    result = sp.run(
+        ["sqlite3", "-json", chat_db, sql],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+    return json.loads(result.stdout.strip())
+
+
+def _get_max_rowid():
+    """Get the current maximum message ROWID from chat.db."""
+    import subprocess as sp
+    chat_db = str(functions._CHAT_DB)
+    result = sp.run(
+        ["sqlite3", chat_db, "SELECT MAX(ROWID) FROM message;"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return 0
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return 0
+
+
+def message_loop(contacts_str, prompt=None, intro=None):
+    """Main loop for message mode: poll iMessages and respond via iMessage."""
+    voice.QUIET = True
+    llm.MESSAGE_MODE = True
+
+    # Resolve contact names to handles
+    contact_names = [c.strip() for c in contacts_str.split(",") if c.strip()]
+    handles = {}  # handle -> contact name
+    for name in contact_names:
+        try:
+            handle = functions._resolve_recipient(name)
+            handles[handle] = name
+            logger.info("Resolved '%s' -> %s", name, handle)
+            print(f"Monitoring: {name} ({handle})")
+        except RuntimeError as e:
+            logger.error("Could not resolve '%s': %s", name, e)
+            print(f"Error: Could not resolve '{name}': {e}")
+            return
+
+    if not handles:
+        print("No contacts to monitor.")
+        return
+
+    # Initialize camera and Claude
+    logger.info("Warming up camera...")
+    functions.init_camera()
+
+    logger.info("Initializing Claude...")
+    response = llm.init_conversation()
+    logger.info("Claude: %s", response)
+
+    # Start polling from current max ROWID (only respond to new messages)
+    last_rowid = _get_max_rowid()
+    logger.info("Starting message poll from ROWID %d", last_rowid)
+    print(f"Message mode active. Polling for new messages... (Ctrl-C to quit)")
+
+    try:
+        while True:
+            new_messages = _poll_new_messages(list(handles.keys()), last_rowid)
+
+            for msg in new_messages:
+                rowid = msg["ROWID"]
+                text = msg["text"]
+                sender = msg["sender"]
+                contact_name = handles.get(sender, sender)
+                last_rowid = max(last_rowid, rowid)
+
+                logger.info("Message from %s (%s): %s", contact_name, sender, text)
+                print(f"\n[{contact_name}] {text}")
+
+                try:
+                    if prompt:
+                        text = prompt + " " + text
+                    response = llm.generate_response(text)
+                    speech, json_data = llm.parse_response(response)
+                    logger.info("Iris: %s", response)
+
+                    # Handle function calls
+                    if json_data and "function" in json_data:
+                        logger.info("Calling function: %s(%s)",
+                                    json_data["function"], json_data.get("args", {}))
+                        try:
+                            result = functions.call(json_data["function"], json_data.get("args", {}))
+                        except EnterInactiveMode:
+                            logger.info("Sleep requested in message mode, ignoring")
+                            result = {"status": "sleep not available in message mode"}
+                        except SystemExit:
+                            print(f"  -> {speech}")
+                            if speech:
+                                functions._send_imessage_to_handle(sender, speech)
+                            return
+
+                        print(f"  [fn] {json_data['function']} -> {json.dumps(result)}")
+                        image_path = result.get("path", "") if isinstance(result, dict) else ""
+                        if image_path and image_path.endswith(".png"):
+                            follow_up_prompt = (
+                                f"Read the image at {image_path} and describe what you see. "
+                                "Be brief and conversational."
+                            )
+                        else:
+                            follow_up_prompt = (
+                                f"Function {json_data['function']} returned: {json.dumps(result)}. "
+                                "Summarize the result conversationally."
+                            )
+                        follow_up = llm.generate_response(follow_up_prompt)
+                        speech, _ = llm.parse_response(follow_up)
+
+                    if speech:
+                        print(f"  -> {speech}")
+                        send_result = functions._send_imessage_to_handle(sender, speech)
+                        if send_result is not True:
+                            logger.error("Failed to send reply: %s", send_result)
+                            print(f"  [error] Failed to send: {send_result}")
+                    else:
+                        logger.warning("Empty response, not sending")
+
+                except Exception as e:
+                    logger.error("Error processing message: %s", e)
+                    print(f"  [error] {e}")
+
+            time.sleep(2)
+    except KeyboardInterrupt:
+        print("\nMessage mode stopped.")
+    finally:
+        functions.release_camera()
+
+
 def main(args=None):
     if args is None:
         args = sys.argv[1:]
@@ -641,6 +789,13 @@ def main(args=None):
         functions.PASSIVE_MODE = True
     if parsed_args['--dictate']:
         functions.start_dictation()
+
+    if parsed_args['--message']:
+        try:
+            message_loop(parsed_args['--message'], prompt=prompt, intro=intro)
+        except KeyboardInterrupt:
+            pass
+        return 0
 
     try:
         if parsed_args['--debug']:
