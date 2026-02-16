@@ -19,6 +19,7 @@ uv run iris --quiet                        # text input, no speech output
 uv run iris --debug --quiet                # text input via stdin
 uv run iris --visual                       # periodic camera narration
 uv run iris --passive                      # listen passively, respond when addressed
+uv run iris --message="Ben,Mom"            # respond via iMessage to named contacts
 uv run iris-dictation [--debug] [--verbose]
 uv run iris-summarize [--chunk-size=<c>] [--tokens=<t>] <text-file>
 
@@ -36,6 +37,7 @@ pip install -e ".[dev]"
 | `--visual` | Enable visual mode (periodic camera capture) | off |
 | `--passive` | Start in passive mode (listen, respond only when addressed) | off |
 | `--dictate` | Start in dictation mode (transcribe to file, query on wake) | off |
+| `--message=<contacts>` | Message mode: respond via iMessage to named contacts (comma-separated) | none |
 | `--system=<file>` | Extra system prompt (appended to identity) | none |
 | `--intro=<file>` | First user message sent after init | none |
 | `--prompt=<file>` | Prepended to every user message | none |
@@ -61,13 +63,14 @@ pip install -e ".[dev]"
 - **Muted** — microphone input discarded, but visual mode captures continue on their interval. Only "unmute" is recognized.
 - **Passive** — orthogonal flag (`PASSIVE_MODE`). All speech is buffered locally without sending to Claude. When the assistant's name is detected (via `is_wake_word()`), the full buffer is sent as conversation context, Claude responds, and the buffer clears. Auto-sleep is suppressed. Visual mode captures continue independently. Toggle via `--passive` flag, `start_passive_mode`/`stop_passive_mode` functions, or voice command.
 - **Dictation** — orthogonal flag (`DICTATION_MODE`). All speech is written to a timestamped file in `~/.iris/dictation/` with `[HH:MM:SS]` prefixes, flushed immediately for crash safety. On wake word, last 100 lines of transcript sent to Claude as context; transcript keeps accumulating (does not clear). Claude can call `get_dictation_transcript()` to read older portions. Mutually exclusive with passive mode. Auto-sleep suppressed. Toggle via `--dictate` flag, `start_dictation`/`stop_dictation` functions, or voice command.
+- **Message mode** — separate loop (`message_loop()` in `computer.py`). Polls `~/Library/Messages/chat.db` via `sqlite3` CLI every 2 seconds for new incoming iMessages from specified contacts. Each message is sent through the same Claude conversation and function pipeline. Responses are sent back as iMessages via AppleScript. Contact names are resolved to phone handles via Contacts.app JXA. TTS is suppressed. Camera still available for capture functions. Activated via `--message=<contacts>` (comma-separated names).
 
 **Visual mode:** When enabled (via `--visual` flag or `start_visual_mode` function), captures a webcam frame every 10 seconds during idle/muted periods and sends it to Claude for narration. Uses shorter listen timeouts (3s timeout, 3s phrase limit) vs normal mode (5s timeout, 30s phrase limit).
 
 **Key modules (all under `src/iris/`):**
 - `computer.py` — Entry point (`iris`). Main loop with Textual TUI (or `--debug` for stdout). Manages active/inactive/muted/passive states, idle timeout, function call dispatch and follow-up. Watchdog thread wraps mic capture to detect hangs.
 - `llm.py` — Claude CLI wrapper. `init_conversation()` starts a session via `claude -p` with the system prompt (identity + function catalog). `generate_response()` continues it via `claude -c -p` (with `--allowedTools Read` for image reading). `parse_response()` splits text from JSON blocks via regex. Configurable assistant name with identity lookup.
-- `functions.py` — Local function registry. Use `@register(name, description, parameters)` decorator to add functions Claude can call. JSON format: `{"function": "name", "args": {...}}`. Includes weather (Open-Meteo), time, timers, calculator, notes, Wikipedia, unit conversion, camera capture, visual/mute/passive/dictation mode, sleep, shutdown. Stubs for home automation, music, messaging.
+- `functions.py` — Local function registry. Use `@register(name, description, parameters)` decorator to add functions Claude can call. JSON format: `{"function": "name", "args": {...}}`. Includes weather (Open-Meteo), time, timers, calculator, notes, Wikipedia, unit conversion, camera capture, visual/mute/passive/dictation mode, iMessage (send/read/list), sleep, shutdown. Stubs for home automation, music.
 - `voice.py` — TTS wrapper around macOS `say` command. Configurable voice, rate (180 wpm), and pitch. Respects `QUIET` flag.
 - `ui.py` — Textual full-screen TUI showing user speech and Claude response. Status bar, sleep (dimmed) and mute (red background) visual states. Text input widget in quiet mode. Press `q` to quit.
 - `dictation.py` — Standalone transcription tool (`iris-dictation`). Threaded listener + recognizer with Whisper hallucination filtering.
