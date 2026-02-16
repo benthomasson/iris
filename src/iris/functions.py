@@ -440,17 +440,257 @@ def play_music(query):
     return {"status": "not_implemented", "message": f"Music playback not yet connected. Would play: {query}"}
 
 
+# --- iMessage ---
+
+
+_CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
+
+_LIST_CHATS_JXA = """\
+var Messages = Application("Messages");
+var chats = Messages.chats();
+var result = [];
+for (var i = 0; i < chats.length; i++) {
+    var c = chats[i];
+    try {
+        var participants = c.participants();
+        for (var j = 0; j < participants.length; j++) {
+            var p = participants[j];
+            result.push({name: p.name(), handle: p.handle().id()});
+        }
+    } catch(e) {}
+}
+JSON.stringify(result);
+"""
+
+_CONTACTS_LOOKUP_JXA = """\
+var Contacts = Application("Contacts");
+var people = Contacts.people.whose({name: {_contains: "%QUERY%"}})();
+var result = [];
+for (var i = 0; i < people.length; i++) {
+    var p = people[i];
+    var phones = p.phones();
+    var ph = [];
+    for (var j = 0; j < phones.length; j++) ph.push(phones[j].value());
+    var emails = p.emails();
+    var em = [];
+    for (var j = 0; j < emails.length; j++) em.push(emails[j].value());
+    result.push({name: p.name(), phones: ph, emails: em});
+}
+JSON.stringify(result);
+"""
+
+
+def _normalize_phone(number):
+    """Normalize a phone number: strip non-digits, add +1 for 10-digit US numbers."""
+    import re
+    digits = re.sub(r"[^\d]", "", number.lstrip("+"))
+    if len(digits) == 10:
+        return "+1" + digits
+    if len(digits) == 11 and digits.startswith("1"):
+        return "+" + digits
+    return "+" + digits if digits else number
+
+
+def _resolve_recipient(name_or_number):
+    """Resolve a contact name or phone number to an iMessage handle.
+
+    If the input looks like a phone number (digits, +, spaces, dashes),
+    normalize and return it. Otherwise, look up the name in Contacts.app
+    via JXA and return the first phone number found.
+    """
+    import re
+    stripped = re.sub(r"[\s\-\(\)]", "", name_or_number)
+    if re.match(r"^\+?\d{7,15}$", stripped):
+        return _normalize_phone(stripped)
+
+    # Look up name in Contacts.app
+    escaped = name_or_number.replace("\\", "\\\\").replace('"', '\\"')
+    script = _CONTACTS_LOOKUP_JXA.replace("%QUERY%", escaped)
+    try:
+        result = subprocess.run(
+            ["osascript", "-l", "JavaScript", "-e", script],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            contacts = json.loads(result.stdout.strip())
+            for c in contacts:
+                phones = c.get("phones", [])
+                if phones:
+                    return _normalize_phone(phones[0])
+                emails = c.get("emails", [])
+                if emails:
+                    return emails[0]
+    except Exception as e:
+        logger.warning("Contacts lookup failed: %s", e)
+
+    raise RuntimeError(f"No contact matching '{name_or_number}' found")
+
+
+_ALL_CONTACTS_JXA = """\
+var Contacts = Application("Contacts");
+var people = Contacts.people();
+var result = [];
+for (var i = 0; i < people.length; i++) {
+    var p = people[i];
+    var phones = p.phones();
+    for (var j = 0; j < phones.length; j++) {
+        result.push({name: p.name(), handle: phones[j].value()});
+    }
+    var emails = p.emails();
+    for (var j = 0; j < emails.length; j++) {
+        result.push({name: p.name(), handle: emails[j].value()});
+    }
+}
+JSON.stringify(result);
+"""
+
+
+def _contacts_phone_map():
+    """Build a normalized-phone → name map from Contacts.app."""
+    import re
+    try:
+        result = subprocess.run(
+            ["osascript", "-l", "JavaScript", "-e", _ALL_CONTACTS_JXA],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return {}
+        entries = json.loads(result.stdout.strip())
+        mapping = {}
+        for e in entries:
+            handle = e.get("handle", "")
+            digits = re.sub(r"[^\d]", "", handle)
+            # Normalize to +1XXXXXXXXXX for 10/11-digit US numbers
+            if len(digits) == 10:
+                digits = "1" + digits
+            if len(digits) == 11 and digits.startswith("1"):
+                mapping["+" + digits] = e.get("name", handle)
+            # Also store email handles as-is
+            if "@" in handle:
+                mapping[handle.lower()] = e.get("name", handle)
+        return mapping
+    except Exception as e:
+        logger.warning("Contacts phone map failed: %s", e)
+        return {}
+
+
+@register(
+    name="list_conversations",
+    description="List recent iMessage conversations with participant names and handles",
+    parameters=[],
+)
+def list_conversations():
+    try:
+        result = subprocess.run(
+            ["sqlite3", "-json", str(_CHAT_DB),
+             "SELECT DISTINCT handle.id FROM handle "
+             "JOIN chat_handle_join ON handle.ROWID = chat_handle_join.handle_id "
+             "ORDER BY handle.id;"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return {"error": result.stderr.strip()}
+        output = result.stdout.strip()
+        if not output:
+            return {"conversations": []}
+        rows = json.loads(output)
+        phone_map = _contacts_phone_map()
+        conversations = []
+        for row in rows:
+            handle = row.get("id", "")
+            name = phone_map.get(handle, handle)
+            conversations.append({"name": name, "handle": handle})
+        return {"conversations": conversations}
+    except Exception as e:
+        logger.error("list_conversations failed: %s", e)
+        return {"error": str(e)}
+
+
 @register(
     name="send_message",
-    description="Send a message to someone (not yet connected)",
+    description="Send an iMessage to a contact by name or phone number",
     parameters=[
-        {"name": "recipient", "type": "string", "description": "Who to send the message to"},
+        {"name": "recipient", "type": "string", "description": "Contact name or phone number"},
         {"name": "message", "type": "string", "description": "The message content"},
     ],
 )
 def send_message(recipient, message):
-    # TODO: Connect to iMessage, Slack, etc.
-    return {"status": "not_implemented", "message": f"Messaging not yet connected. Would send to {recipient}: {message}"}
+    try:
+        handle = _resolve_recipient(recipient)
+    except RuntimeError as e:
+        return {"error": str(e)}
+
+    escaped_msg = message.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_handle = handle.replace("\\", "\\\\").replace('"', '\\"')
+    script = (
+        f'tell application "Messages"\n'
+        f'  set targetService to 1st service whose service type = iMessage\n'
+        f'  set targetBuddy to buddy "{escaped_handle}" of targetService\n'
+        f'  send "{escaped_msg}" to targetBuddy\n'
+        f'end tell'
+    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return {"error": result.stderr.strip()}
+        return {"status": "sent", "recipient": recipient, "handle": handle, "message": message}
+    except Exception as e:
+        logger.error("send_message failed: %s", e)
+        return {"error": str(e)}
+
+
+@register(
+    name="read_messages",
+    description="Read recent iMessage messages from a contact",
+    parameters=[
+        {"name": "contact", "type": "string", "description": "Contact name or phone number"},
+        {"name": "count", "type": "number", "description": "Number of messages to return (default 10)"},
+    ],
+)
+def read_messages(contact, count=10):
+    try:
+        handle = _resolve_recipient(contact)
+    except RuntimeError as e:
+        return {"error": str(e)}
+
+    count = int(count)
+    escaped_handle = handle.replace("'", "''")
+    sql = (
+        "SELECT message.text, message.is_from_me, "
+        "datetime(message.date/1000000000 + 978307200, 'unixepoch', 'localtime') as date "
+        "FROM message "
+        "JOIN chat_message_join ON message.ROWID = chat_message_join.message_id "
+        "JOIN chat_handle_join ON chat_message_join.chat_id = chat_handle_join.chat_id "
+        "JOIN handle ON chat_handle_join.handle_id = handle.ROWID "
+        f"WHERE handle.id = '{escaped_handle}' AND message.text IS NOT NULL "
+        f"ORDER BY message.date DESC LIMIT {count};"
+    )
+    try:
+        result = subprocess.run(
+            ["sqlite3", "-json", str(_CHAT_DB), sql],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return {"error": result.stderr.strip()}
+        output = result.stdout.strip()
+        if not output:
+            return {"messages": [], "contact": contact, "handle": handle}
+        rows = json.loads(output)
+        messages = [
+            {
+                "text": r.get("text", ""),
+                "from_me": bool(r.get("is_from_me", 0)),
+                "date": r.get("date", ""),
+            }
+            for r in reversed(rows)
+        ]
+        return {"messages": messages, "contact": contact, "handle": handle}
+    except Exception as e:
+        logger.error("read_messages failed: %s", e)
+        return {"error": str(e)}
 
 
 # --- System Control ---
