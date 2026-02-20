@@ -308,6 +308,39 @@ def get_notes():
     return {"notes": notes}
 
 
+# --- Development Task Queue ---
+
+
+@register(
+    name="add_dev_task",
+    description="Add a development task to the multiagent-loop queue for later processing by the autonomous development loop",
+    parameters=[
+        {"name": "task", "type": "string", "description": "The development task description to add to the queue"},
+        {"name": "queue_path", "type": "string", "description": "Path to queue file (default: ~/git/multiagent-loop/queue.txt)"},
+    ],
+)
+def add_dev_task(task, queue_path=None):
+    """Append a development task to the multiagent-loop queue file."""
+    if queue_path is None:
+        queue_path = Path.home() / "git" / "multiagent-loop" / "queue.txt"
+    else:
+        queue_path = Path(queue_path).expanduser()
+
+    # Ensure parent directory exists
+    queue_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Append task as a single line (strip to avoid double newlines)
+    task_line = task.strip()
+    with open(queue_path, "a") as f:
+        f.write(task_line + "\n")
+
+    return {
+        "status": "added",
+        "task": task_line,
+        "queue_path": str(queue_path),
+    }
+
+
 # --- Wikipedia ---
 
 
