@@ -157,6 +157,14 @@ def get_time():
 
 NOTES_DIR = Path.home() / ".cvi_notes"
 
+# Dev task queue mappings
+DEV_QUEUE_BASE = Path.home() / "git" / "multiagent-loop"
+DEV_QUEUES = {
+    "default": "queue.txt",
+    "urgent": "urgent.txt",
+    "backlog": "backlog.txt",
+}
+
 _active_timers = []  # list of {"label", "cancel"} dicts
 
 
@@ -313,32 +321,62 @@ def get_notes():
 
 @register(
     name="add_dev_task",
-    description="Add a development task to the multiagent-loop queue for later processing by the autonomous development loop",
+    description="Add a development task to a multiagent-loop queue. Use queue_name='urgent' for urgent tasks, 'backlog' for low priority, or 'default' for the main queue.",
     parameters=[
         {"name": "task", "type": "string", "description": "The development task description to add to the queue"},
-        {"name": "queue_path", "type": "string", "description": "Path to queue file (default: ~/git/multiagent-loop/queue.txt)"},
+        {"name": "queue_name", "type": "string", "description": "Queue name: 'default', 'urgent', or 'backlog' (default: 'default')"},
+        {"name": "queue_path", "type": "string", "description": "Custom path to queue file (overrides queue_name if provided)"},
     ],
 )
-def add_dev_task(task, queue_path=None):
-    """Append a development task to the multiagent-loop queue file."""
-    if queue_path is None:
-        queue_path = Path.home() / "git" / "multiagent-loop" / "queue.txt"
+def add_dev_task(task, queue_name="default", queue_path=None):
+    """Append a development task to a multiagent-loop queue file."""
+    # Priority: explicit queue_path > queue_name lookup
+    if queue_path is not None:
+        resolved_path = Path(queue_path).expanduser()
+    elif queue_name in DEV_QUEUES:
+        resolved_path = DEV_QUEUE_BASE / DEV_QUEUES[queue_name]
     else:
-        queue_path = Path(queue_path).expanduser()
+        return {
+            "error": f"Unknown queue name: '{queue_name}'. Available queues: {', '.join(DEV_QUEUES.keys())}"
+        }
 
     # Ensure parent directory exists
-    queue_path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Append task as a single line (strip to avoid double newlines)
     task_line = task.strip()
-    with open(queue_path, "a") as f:
+    with open(resolved_path, "a") as f:
         f.write(task_line + "\n")
 
     return {
         "status": "added",
         "task": task_line,
-        "queue_path": str(queue_path),
+        "queue_name": queue_name if queue_path is None else None,
+        "queue_path": str(resolved_path),
     }
+
+
+@register(
+    name="list_dev_queues",
+    description="List available development task queues and their current task counts",
+    parameters=[],
+)
+def list_dev_queues():
+    """List available dev queues with paths and task counts."""
+    queues = []
+    for name, filename in DEV_QUEUES.items():
+        path = DEV_QUEUE_BASE / filename
+        if path.exists():
+            task_count = sum(1 for line in path.read_text().splitlines() if line.strip())
+        else:
+            task_count = 0
+        queues.append({
+            "name": name,
+            "filename": filename,
+            "path": str(path),
+            "task_count": task_count,
+        })
+    return {"queues": queues}
 
 
 # --- Wikipedia ---
